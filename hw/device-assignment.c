@@ -1523,9 +1523,7 @@ static void assigned_dev_unregister_msix_mmio(AssignedDevice *dev)
 
 static const VMStateDescription vmstate_assigned_device = {
     .name = "pci-assign",
-    .fields = (VMStateField []) {
-        VMSTATE_END_OF_LIST()
-    }
+    .unmigratable = 1,
 };
 
 static void reset_assigned_device(DeviceState *dev)
@@ -1643,11 +1641,6 @@ static int assigned_initfn(struct PCIDevice *pci_dev)
 
     add_boot_device_path(dev->bootindex, &pci_dev->qdev, NULL);
 
-    /* Register a vmsd so that we can mark it unmigratable. */
-    vmstate_register(&dev->dev.qdev, 0, &vmstate_assigned_device, dev);
-    register_device_unmigratable(&dev->dev.qdev,
-                                 vmstate_assigned_device.name, dev);
-
     return 0;
 
 assigned_out:
@@ -1661,7 +1654,6 @@ static int assigned_exitfn(struct PCIDevice *pci_dev)
 {
     AssignedDevice *dev = DO_UPCAST(AssignedDevice, dev, pci_dev);
 
-    vmstate_unregister(&dev->dev.qdev, &vmstate_assigned_device, dev);
     QLIST_REMOVE(dev, next);
     deassign_device(dev);
     free_assigned_device(dev);
@@ -1698,6 +1690,7 @@ static PCIDeviceInfo assign_info = {
     .qdev.name    = "pci-assign",
     .qdev.desc    = "pass through host pci devices to the guest",
     .qdev.size    = sizeof(AssignedDevice),
+    .qdev.vmsd    = &vmstate_assigned_device,
     .qdev.reset   = reset_assigned_device,
     .init         = assigned_initfn,
     .exit         = assigned_exitfn,
