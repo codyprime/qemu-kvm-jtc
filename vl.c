@@ -1324,7 +1324,7 @@ void qemu_system_vmstop_request(int reason)
     qemu_notify_event();
 }
 
-void main_loop_wait(int nonblocking)
+int main_loop_wait(int nonblocking)
 {
     fd_set rfds, wfds, xfds;
     int ret, nfds;
@@ -1352,9 +1352,15 @@ void main_loop_wait(int nonblocking)
     qemu_iohandler_fill(&nfds, &rfds, &wfds, &xfds);
     slirp_select_fill(&nfds, &rfds, &wfds, &xfds);
 
-    qemu_mutex_unlock_iothread();
+    if (timeout > 0) {
+        qemu_mutex_unlock_iothread();
+    }
+
     ret = select(nfds + 1, &rfds, &wfds, &xfds, &tv);
-    qemu_mutex_lock_iothread();
+
+    if (timeout > 0) {
+        qemu_mutex_lock_iothread();
+    }
 
     qemu_iohandler_poll(&rfds, &wfds, &xfds, ret);
     slirp_select_poll(&rfds, &wfds, &xfds, (ret < 0));
@@ -1365,6 +1371,7 @@ void main_loop_wait(int nonblocking)
        them.  */
     qemu_bh_poll();
 
+    return ret;
 }
 
 #ifndef CONFIG_IOTHREAD
@@ -1382,7 +1389,8 @@ qemu_irq qemu_system_powerdown;
 
 static void main_loop(void)
 {
-    bool nonblocking = false;
+    bool nonblocking;
+    int last_io __attribute__ ((unused)) = 0;
 #ifdef CONFIG_PROFILER
     int64_t ti;
 #endif
@@ -1391,7 +1399,9 @@ static void main_loop(void)
     qemu_main_loop_start();
 
     for (;;) {
-#ifndef CONFIG_IOTHREAD
+#ifdef CONFIG_IOTHREAD
+        nonblocking = !kvm_enabled() && last_io > 0;
+#else
         nonblocking = cpu_exec_all();
         if (vm_request_pending()) {
             nonblocking = true;
@@ -1400,7 +1410,7 @@ static void main_loop(void)
 #ifdef CONFIG_PROFILER
         ti = profile_getclock();
 #endif
-        main_loop_wait(nonblocking);
+        last_io = main_loop_wait(nonblocking);
 #ifdef CONFIG_PROFILER
         dev_time += profile_getclock() - ti;
 #endif

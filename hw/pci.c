@@ -806,7 +806,7 @@ static void pci_config_alloc(PCIDevice *pci_dev)
     pci_dev->cmask = g_malloc0(config_size);
     pci_dev->wmask = g_malloc0(config_size);
     pci_dev->w1cmask = g_malloc0(config_size);
-    pci_dev->config_map = g_malloc0(config_size);
+    pci_dev->used = g_malloc0(config_size);
 }
 
 static void pci_config_free(PCIDevice *pci_dev)
@@ -815,7 +815,7 @@ static void pci_config_free(PCIDevice *pci_dev)
     g_free(pci_dev->cmask);
     g_free(pci_dev->wmask);
     g_free(pci_dev->w1cmask);
-    g_free(pci_dev->config_map);
+    g_free(pci_dev->used);
 }
 
 /* -1 for devfn means auto assign */
@@ -845,8 +845,6 @@ static PCIDevice *do_pci_register_device(PCIDevice *pci_dev, PCIBus *bus,
     pstrcpy(pci_dev->name, sizeof(pci_dev->name), name);
     pci_dev->irq_state = 0;
     pci_config_alloc(pci_dev);
-
-    memset(pci_dev->config_map, 0xff, PCI_CONFIG_HEADER_SIZE);
 
     pci_config_set_vendor_id(pci_dev->config, info->vendor_id);
     pci_config_set_device_id(pci_dev->config, info->device_id);
@@ -1887,7 +1885,7 @@ static int pci_find_space(PCIDevice *pdev, uint8_t size)
     int offset = PCI_CONFIG_HEADER_SIZE;
     int i;
     for (i = PCI_CONFIG_HEADER_SIZE; i < config_size; ++i)
-        if (pdev->config_map[i])
+        if (pdev->used[i])
             offset = i + 1;
         else if (i - offset + 1 == size)
             return offset;
@@ -1910,6 +1908,25 @@ static uint8_t pci_find_capability_list(PCIDevice *pdev, uint8_t cap_id,
     if (prev_p)
         *prev_p = prev;
     return next;
+}
+
+static uint8_t pci_find_capability_at_offset(PCIDevice *pdev, uint8_t offset)
+{
+    uint8_t next, prev, found = 0;
+
+    if (!(pdev->used[offset])) {
+        return 0;
+    }
+
+    assert(pdev->config[PCI_STATUS] & PCI_STATUS_CAP_LIST);
+
+    for (prev = PCI_CAPABILITY_LIST; (next = pdev->config[prev]);
+         prev = next + PCI_CAP_LIST_NEXT) {
+        if (next <= offset && next > found) {
+            found = next;
+        }
+    }
+    return found;
 }
 
 /* Patch the PCI vendor and device ids in a PCI rom image if necessary.
@@ -2053,22 +2070,27 @@ int pci_add_capability(PCIDevice *pdev, uint8_t cap_id,
                        uint8_t offset, uint8_t size)
 {
     uint8_t *config;
+    int i, overlapping_cap;
+
     if (!offset) {
         offset = pci_find_space(pdev, size);
         if (!offset) {
             return -ENOSPC;
         }
     } else {
-        int i;
-
+        /* Verify that capabilities don't overlap.  Note: device assignment
+         * depends on this check to verify that the device is not broken.
+         * Should never trigger for emulated devices, but it's helpful
+         * for debugging these. */
         for (i = offset; i < offset + size; i++) {
-            if (pdev->config_map[i]) {
+            overlapping_cap = pci_find_capability_at_offset(pdev, i);
+            if (overlapping_cap) {
                 fprintf(stderr, "ERROR: %04x:%02x:%02x.%x "
                         "Attempt to add PCI capability %x at offset "
                         "%x overlaps existing capability %x at offset %x\n",
                         pci_find_domain(pdev->bus), pci_bus_num(pdev->bus),
                         PCI_SLOT(pdev->devfn), PCI_FUNC(pdev->devfn),
-                        cap_id, offset, pdev->config_map[i], i);
+                        cap_id, offset, overlapping_cap, i);
                 return -EINVAL;
             }
         }
@@ -2078,13 +2100,13 @@ int pci_add_capability(PCIDevice *pdev, uint8_t cap_id,
     config[PCI_CAP_LIST_ID] = cap_id;
     config[PCI_CAP_LIST_NEXT] = pdev->config[PCI_CAPABILITY_LIST];
     pdev->config[PCI_CAPABILITY_LIST] = offset;
-    memset(pdev->config_map + offset, cap_id, size);
+    pdev->config[PCI_STATUS] |= PCI_STATUS_CAP_LIST;
+    memset(pdev->used + offset, 0xFF, size);
     /* Make capability read-only by default */
     memset(pdev->wmask + offset, 0, size);
     /* Check capability by default */
     memset(pdev->cmask + offset, 0xFF, size);
 
-    pdev->config[PCI_STATUS] |= PCI_STATUS_CAP_LIST;
 
     return offset;
 }
@@ -2101,7 +2123,7 @@ void pci_del_capability(PCIDevice *pdev, uint8_t cap_id, uint8_t size)
     memset(pdev->w1cmask + offset, 0, size);
     /* Clear cmask as device-specific registers can't be checked */
     memset(pdev->cmask + offset, 0, size);
-    memset(pdev->config_map + offset, 0, size);
+    memset(pdev->used + offset, 0, size);
 
     if (!pdev->config[PCI_CAPABILITY_LIST]) {
         pdev->config[PCI_STATUS] &= ~PCI_STATUS_CAP_LIST;
