@@ -105,11 +105,12 @@ typedef uint8_t (* vga_retrace_fn)(struct VGACommonState *s);
 typedef void (* vga_update_retrace_info_fn)(struct VGACommonState *s);
 
 typedef struct VGACommonState {
+    MemoryRegion *legacy_address_space;
     uint8_t *vram_ptr;
     MemoryRegion vram;
     uint32_t vram_size;
     uint32_t latch;
-    uint32_t lfb_vram_mapped; /* whether 0xa0000 is mapped as ram */
+    MemoryRegion *chain4_alias;
     uint8_t sr_index;
     uint8_t sr[256];
     uint8_t gr_index;
@@ -131,7 +132,6 @@ typedef struct VGACommonState {
     int dac_8bit;
     uint8_t palette[768];
     int32_t bank_offset;
-    MemoryRegion *vga_io_memory;
     int (*get_bpp)(struct VGACommonState *s);
     void (*get_offsets)(struct VGACommonState *s,
                         uint32_t *pline_offset,
@@ -193,7 +193,6 @@ void vga_common_reset(VGACommonState *s);
 
 void vga_dirty_log_start(VGACommonState *s);
 void vga_dirty_log_stop(VGACommonState *s);
-void vga_dirty_log_restart(VGACommonState *s);
 
 extern const VMStateDescription vmstate_vga_common;
 uint32_t vga_ioport_read(void *opaque, uint32_t addr);

@@ -222,31 +222,6 @@ typedef struct V9fsState
     int32_t msize;
 } V9fsState;
 
-typedef struct V9fsCreateState {
-    V9fsPDU *pdu;
-    size_t offset;
-    V9fsFidState *fidp;
-    V9fsQID qid;
-    int32_t perm;
-    int8_t mode;
-    struct stat stbuf;
-    V9fsString name;
-    V9fsString extension;
-    V9fsString fullname;
-    int iounit;
-} V9fsCreateState;
-
-typedef struct V9fsLcreateState {
-    V9fsPDU *pdu;
-    size_t offset;
-    V9fsFidState *fidp;
-    V9fsQID qid;
-    int32_t iounit;
-    struct stat stbuf;
-    V9fsString name;
-    V9fsString fullname;
-} V9fsLcreateState;
-
 typedef struct V9fsStatState {
     V9fsPDU *pdu;
     size_t offset;
@@ -277,19 +252,6 @@ typedef struct V9fsStatDotl {
     uint64_t st_gen;
     uint64_t st_data_version;
 } V9fsStatDotl;
-
-typedef struct V9fsWalkState {
-    V9fsPDU *pdu;
-    size_t offset;
-    uint16_t nwnames;
-    int name_idx;
-    V9fsQID *qids;
-    V9fsFidState *fidp;
-    V9fsFidState *newfidp;
-    V9fsString path;
-    V9fsString *wnames;
-    struct stat stbuf;
-} V9fsWalkState;
 
 typedef struct V9fsOpenState {
     V9fsPDU *pdu;
@@ -333,28 +295,6 @@ typedef struct V9fsWriteState {
     int cnt;
 } V9fsWriteState;
 
-typedef struct V9fsWstatState
-{
-    V9fsPDU *pdu;
-    size_t offset;
-    int16_t unused;
-    V9fsStat v9stat;
-    V9fsFidState *fidp;
-    struct stat stbuf;
-} V9fsWstatState;
-
-typedef struct V9fsSymlinkState
-{
-    V9fsPDU *pdu;
-    size_t offset;
-    V9fsString name;
-    V9fsString symname;
-    V9fsString fullname;
-    V9fsFidState *dfidp;
-    V9fsQID qid;
-    struct stat stbuf;
-} V9fsSymlinkState;
-
 typedef struct V9fsIattr
 {
     int32_t valid;
@@ -374,7 +314,7 @@ struct virtio_9p_config
     uint16_t tag_len;
     /* Variable size tag name */
     uint8_t tag[0];
-} __attribute__((packed));
+} QEMU_PACKED;
 
 typedef struct V9fsMkState {
     V9fsPDU *pdu;
@@ -403,16 +343,6 @@ typedef struct V9fsFlock
     V9fsString client_id;
 } V9fsFlock;
 
-typedef struct V9fsLockState
-{
-    V9fsPDU *pdu;
-    size_t offset;
-    int8_t status;
-    struct stat stbuf;
-    V9fsFidState *fidp;
-    V9fsFlock *flock;
-} V9fsLockState;
-
 typedef struct V9fsGetlock
 {
     uint8_t type;
@@ -421,15 +351,6 @@ typedef struct V9fsGetlock
     uint32_t proc_id;
     V9fsString client_id;
 } V9fsGetlock;
-
-typedef struct V9fsGetlockState
-{
-    V9fsPDU *pdu;
-    size_t offset;
-    struct stat stbuf;
-    V9fsFidState *fidp;
-    V9fsGetlock *glock;
-} V9fsGetlockState;
 
 size_t pdu_packunpack(void *addr, struct iovec *sg, int sg_count,
                       size_t offset, size_t size, int pack);

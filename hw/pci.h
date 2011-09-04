@@ -148,7 +148,7 @@ struct PCIDevice {
     uint8_t *w1cmask;
 
     /* Used to allocate config space and track capabilities. */
-    uint8_t *config_map;
+    uint8_t *used;
 
     /* the following fields are read only */
     PCIBus *bus;
