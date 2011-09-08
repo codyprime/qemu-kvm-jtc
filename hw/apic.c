@@ -661,27 +661,38 @@ static uint32_t apic_get_current_count(APICState *s)
     return val;
 }
 
+static bool apic_next_timer(APICState *s, int64_t current_time)
+{
+    int64_t d;
+
+    if (s->lvt[APIC_LVT_TIMER] & APIC_LVT_MASKED) {
+        return false;
+    }
+
+    d = (current_time - s->initial_count_load_time) >> s->count_shift;
+
+    if (s->lvt[APIC_LVT_TIMER] & APIC_LVT_TIMER_PERIODIC) {
+        if (!s->initial_count) {
+            return false;
+        }
+        d = ((d / ((uint64_t)s->initial_count + 1)) + 1) *
+            ((uint64_t)s->initial_count + 1);
+    } else {
+        if (d >= s->initial_count) {
+            return false;
+        }
+        d = (uint64_t)s->initial_count + 1;
+    }
+    s->next_time = s->initial_count_load_time + (d << s->count_shift);
+
+    return true;
+}
+
 static void apic_timer_update(APICState *s, int64_t current_time)
 {
-    int64_t next_time, d;
-
-    if (!(s->lvt[APIC_LVT_TIMER] & APIC_LVT_MASKED)) {
-        d = (current_time - s->initial_count_load_time) >>
-            s->count_shift;
-        if (s->lvt[APIC_LVT_TIMER] & APIC_LVT_TIMER_PERIODIC) {
-            if (!s->initial_count)
-                goto no_timer;
-            d = ((d / ((uint64_t)s->initial_count + 1)) + 1) * ((uint64_t)s->initial_count + 1);
-        } else {
-            if (d >= s->initial_count)
-                goto no_timer;
-            d = (uint64_t)s->initial_count + 1;
-        }
-        next_time = s->initial_count_load_time + (d << s->count_shift);
-        qemu_mod_timer(s->timer, next_time);
-        s->next_time = next_time;
+    if (apic_next_timer(s, current_time)) {
+        qemu_mod_timer(s->timer, s->next_time);
     } else {
-    no_timer:
         qemu_del_timer(s->timer);
     }
 }
