@@ -147,7 +147,7 @@ struct PCIDevice {
     /* Used to implement RW1C(Write 1 to Clear) bytes */
     uint8_t *w1cmask;
 
-    /* Used to allocate config space and track capabilities. */
+    /* Used to allocate config space for capabilities. */
     uint8_t *used;
 
     /* the following fields are read only */
@@ -230,7 +230,10 @@ int pci_add_capability(PCIDevice *pdev, uint8_t cap_id,
 
 void pci_del_capability(PCIDevice *pci_dev, uint8_t cap_id, uint8_t cap_size);
 
+void pci_reserve_capability(PCIDevice *pci_dev, uint8_t offset, uint8_t size);
+
 uint8_t pci_find_capability(PCIDevice *pci_dev, uint8_t cap_id);
+
 
 uint32_t pci_default_read_config(PCIDevice *d,
                                  uint32_t address, int len);

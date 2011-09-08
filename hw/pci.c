@@ -2106,8 +2106,6 @@ int pci_add_capability(PCIDevice *pdev, uint8_t cap_id,
     memset(pdev->wmask + offset, 0, size);
     /* Check capability by default */
     memset(pdev->cmask + offset, 0xFF, size);
-
-
     return offset;
 }
 
@@ -2125,9 +2123,14 @@ void pci_del_capability(PCIDevice *pdev, uint8_t cap_id, uint8_t size)
     memset(pdev->cmask + offset, 0, size);
     memset(pdev->used + offset, 0, size);
 
-    if (!pdev->config[PCI_CAPABILITY_LIST]) {
+    if (!pdev->config[PCI_CAPABILITY_LIST])
         pdev->config[PCI_STATUS] &= ~PCI_STATUS_CAP_LIST;
-    }
+}
+
+/* Reserve space for capability at a known offset (to call after load). */
+void pci_reserve_capability(PCIDevice *pdev, uint8_t offset, uint8_t size)
+{
+    memset(pdev->used + offset, 0xff, size);
 }
 
 uint8_t pci_find_capability(PCIDevice *pdev, uint8_t cap_id)
