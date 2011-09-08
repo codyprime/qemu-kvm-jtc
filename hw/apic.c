@@ -950,7 +950,7 @@ static void kvm_kernel_lapic_save_to_user(APICState *s)
     s->count_shift = (v + 1) & 7;
 
     s->initial_count_load_time = qemu_get_clock_ns(vm_clock);
-    apic_timer_update(s, s->initial_count_load_time);
+    apic_next_timer(s, s->initial_count_load_time);
 }
 
 static void kvm_kernel_lapic_load_from_user(APICState *s)
