@@ -1603,6 +1603,17 @@ static int assigned_initfn(struct PCIDevice *pci_dev)
         goto out;
     }
 
+    if (assigned_device_pci_cap_init(pci_dev) < 0) {
+        goto out;
+    }
+
+    /* intercept MSI-X entry page in the MMIO */
+    if (dev->cap.available & ASSIGNED_DEVICE_CAP_MSIX) {
+        if (assigned_dev_register_msix_mmio(dev)) {
+            goto out;
+        }
+    }
+
     /* handle real device's MMIO/PIO BARs */
     if (assigned_dev_register_regions(dev->real_device.regions,
                                       dev->real_device.region_number,
@@ -1618,9 +1629,6 @@ static int assigned_initfn(struct PCIDevice *pci_dev)
     dev->h_busnr = dev->host.bus;
     dev->h_devfn = PCI_DEVFN(dev->host.dev, dev->host.func);
 
-    if (assigned_device_pci_cap_init(pci_dev) < 0)
-        goto out;
-
     /* assign device to guest */
     r = assign_device(dev);
     if (r < 0)
@@ -1630,11 +1638,6 @@ static int assigned_initfn(struct PCIDevice *pci_dev)
     r = assign_irq(dev);
     if (r < 0)
         goto assigned_out;
-
-    /* intercept MSI-X entry page in the MMIO */
-    if (dev->cap.available & ASSIGNED_DEVICE_CAP_MSIX)
-        if (assigned_dev_register_msix_mmio(dev))
-            goto assigned_out;
 
     assigned_dev_load_option_rom(dev);
     QLIST_INSERT_HEAD(&devs, dev, next);
