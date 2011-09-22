@@ -1212,7 +1212,10 @@ static int assigned_device_pci_cap_init(PCIDevice *pci_dev)
     }
     /* Expose MSI-X capability */
     pos = pci_find_cap_offset(pci_dev, PCI_CAP_ID_MSIX, 0);
-    if (pos != 0 && kvm_check_extension(kvm_state, KVM_CAP_DEVICE_MSIX)) {
+    /* Would really like to test kvm_check_extension(, KVM_CAP_DEVICE_MSIX),
+     * but the kernel doesn't expose it.  Instead do a dummy call to
+     * KVM_ASSIGN_SET_MSIX_NR to see if it exists. */
+    if (pos != 0 && kvm_assign_set_msix_nr(kvm_state, NULL) == -EFAULT) {
         int bar_nr;
         uint32_t msix_table_entry;
 
