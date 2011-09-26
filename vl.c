@@ -2208,6 +2208,7 @@ int main(int argc, char **argv, char **envp)
     error_set_progname(argv[0]);
 
     g_mem_set_vtable(&mem_trace);
+    g_thread_init(NULL);
 
     init_clocks();
 
@@ -3100,7 +3101,7 @@ int main(int argc, char **argv, char **envp)
     if (!data_dir) {
         data_dir = os_find_datadir(argv[0]);
     }
-    /* If all else fails use the install patch specified when building.  */
+    /* If all else fails use the install path specified when building. */
     if (!data_dir) {
         data_dir = CONFIG_QEMU_DATADIR;
     }
