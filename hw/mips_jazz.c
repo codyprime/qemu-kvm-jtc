@@ -115,6 +115,7 @@ static void mips_jazz_init(MemoryRegion *address_space,
     rc4030_dma *dmas;
     void* rc4030_opaque;
     MemoryRegion *rtc = g_new(MemoryRegion, 1);
+    MemoryRegion *i8042 = g_new(MemoryRegion, 1);
     MemoryRegion *dma_dummy = g_new(MemoryRegion, 1);
     NICInfo *nd;
     DeviceState *dev;
@@ -181,8 +182,8 @@ static void mips_jazz_init(MemoryRegion *address_space,
     memory_region_add_subregion(address_space, 0x8000d000, dma_dummy);
 
     /* ISA devices */
-    i8259 = i8259_init(env->irq[4]);
     isa_bus_new(NULL, address_space_io);
+    i8259 = i8259_init(env->irq[4]);
     isa_bus_irqs(i8259);
     cpu_exit_irq = qemu_allocate_irqs(cpu_request_exit, NULL, 1);
     DMA_init(0, cpu_exit_irq);
@@ -258,7 +259,8 @@ static void mips_jazz_init(MemoryRegion *address_space,
     memory_region_add_subregion(address_space, 0x80004000, rtc);
 
     /* Keyboard (i8042) */
-    i8042_mm_init(rc4030[6], rc4030[7], 0x80005000, 0x1000, 0x1);
+    i8042_mm_init(rc4030[6], rc4030[7], i8042, 0x1000, 0x1);
+    memory_region_add_subregion(address_space, 0x80005000, i8042);
 
     /* Serial ports */
     if (serial_hds[0]) {
