@@ -57,6 +57,7 @@ typedef struct PITChannelState {
 
 struct PITState {
     ISADevice dev;
+    MemoryRegion ioports;
     uint32_t irq;
     uint32_t iobase;
     PITChannelState channels[3];

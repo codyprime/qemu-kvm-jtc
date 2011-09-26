@@ -537,6 +537,16 @@ void hpet_pit_enable(void)
 }
 #endif
 
+static const MemoryRegionPortio pit_portio[] = {
+    { 0, 4, 1, .write = pit_ioport_write },
+    { 0, 3, 1, .read = pit_ioport_read },
+    PORTIO_END_OF_LIST()
+};
+
+static const MemoryRegionOps pit_ioport_ops = {
+    .old_portio = pit_portio
+};
+
 static int pit_initfn(ISADevice *dev)
 {
     PITState *pit = DO_UPCAST(PITState, dev, dev);
@@ -553,9 +563,8 @@ static int pit_initfn(ISADevice *dev)
     s->irq_timer = qemu_new_timer_ns(vm_clock, pit_irq_timer, s);
     s->irq = isa_get_irq(pit->irq);
 
-    register_ioport_write(pit->iobase, 4, 1, pit_ioport_write, pit);
-    register_ioport_read(pit->iobase, 3, 1, pit_ioport_read, pit);
-    isa_init_ioport(dev, pit->iobase);
+    memory_region_init_io(&pit->ioports, &pit_ioport_ops, pit, "pit", 4);
+    isa_register_ioport(dev, &pit->ioports, pit->iobase);
 
 #ifdef CONFIG_KVM_PIT
     }
