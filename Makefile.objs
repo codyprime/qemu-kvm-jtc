@@ -28,7 +28,6 @@ block-obj-y += nbd.o block.o aio.o aes.o qemu-config.o qemu-progress.o qemu-sock
 block-obj-y += $(coroutine-obj-y)
 block-obj-$(CONFIG_POSIX) += posix-aio-compat.o
 block-obj-$(CONFIG_LINUX_AIO) += linux-aio.o
-block-obj-$(CONFIG_POSIX) += compatfd.o
 
 block-nested-y += raw.o cow.o qcow.o vdi.o vmdk.o cloop.o dmg.o bochs.o vpc.o vvfat.o
 block-nested-y += qcow2.o qcow2-refcount.o qcow2-cluster.o qcow2-snapshot.o qcow2-cache.o
@@ -158,7 +157,7 @@ common-obj-y += $(addprefix ui/, $(ui-obj-y))
 common-obj-$(CONFIG_VNC) += $(addprefix ui/, $(vnc-obj-y))
 
 common-obj-y += iov.o acl.o
-#common-obj-$(CONFIG_POSIX) += compatfd.o
+common-obj-$(CONFIG_POSIX) += compatfd.o
 common-obj-y += notify.o event_notifier.o
 common-obj-y += qemu-timer.o qemu-timer-common.o
 
