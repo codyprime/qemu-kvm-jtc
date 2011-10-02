@@ -155,7 +155,6 @@ static void pc_init1(MemoryRegion *system_memory,
         isa_bus_new(NULL, system_io);
         no_hpet = 1;
     }
-    isa_bus_irqs(isa_irq);
 
     if (!xen_enabled()) {
         cpu_irq = pc_allocate_cpu_irq();
@@ -177,6 +176,8 @@ static void pc_init1(MemoryRegion *system_memory,
     } else {
         isa_irq = i8259;
     }
+
+    isa_bus_irqs(isa_irq);
 
     pc_register_ferr_irq(isa_get_irq(13));
 
