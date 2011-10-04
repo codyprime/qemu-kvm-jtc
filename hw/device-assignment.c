@@ -1259,7 +1259,7 @@ static int assigned_device_pci_cap_init(PCIDevice *pci_dev)
     }
 
     if ((pos = pci_find_cap_offset(pci_dev, PCI_CAP_ID_EXP, 0))) {
-        uint8_t version, size;
+        uint8_t version, size = 0;
         uint16_t type, devctl, lnkcap, lnksta;
         uint32_t devcap;
 
@@ -1286,7 +1286,20 @@ static int assigned_device_pci_cap_init(PCIDevice *pci_dev)
                         "non-standard size 0x%x; std size should be 0x3c \n",
                          __func__, PCI_CAP_ID_EXP, size);
             }
-        } else {
+        } else if (version == 0) {
+            uint16_t vid, did;
+            vid = pci_get_word(pci_dev->config + PCI_VENDOR_ID);
+            did = pci_get_word(pci_dev->config + PCI_DEVICE_ID);
+            if (vid == PCI_VENDOR_ID_INTEL && did == 0x10ed) {
+                /*
+                 * quirk for Intel 82599 VF with invalid PCIe capability
+                 * version, should really be version 2 (same as PF)
+                 */
+                size = 0x3c;
+            }
+        }
+
+        if (size == 0) {
             fprintf(stderr,
                     "%s: Unsupported PCI express capability version %d\n",
                     __func__, version);
