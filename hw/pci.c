@@ -1165,10 +1165,6 @@ static void pci_set_irq(void *opaque, int irq_num, int level)
     if (!change)
         return;
 
-#if defined(TARGET_IA64)
-    ioapic_set_irq(pci_dev, irq_num, level);
-#endif
-
     pci_set_irq_state(pci_dev, irq_num, level);
     pci_update_irq_status(pci_dev);
     if (pci_irq_disabled(pci_dev))

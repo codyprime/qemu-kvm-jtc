@@ -482,13 +482,6 @@ Haiku)
   if [ "$cpu" = "i386" -o "$cpu" = "x86_64" ] ; then
     audio_possible_drivers="$audio_possible_drivers fmod"
   fi
-  if [ "$cpu" = "ia64" ] ; then
-     xen="no"
-     target_list="ia64-softmmu"
-     cpu_emulation="no"
-     gdbstub="no"
-     slirp="no"
-  fi
 ;;
 esac
 
@@ -3256,9 +3249,6 @@ case "$target_arch2" in
     TARGET_BASE_ARCH=i386
     target_phys_bits=64
     target_long_alignment=8
-  ;;
-  ia64)
-    target_phys_bits=64
   ;;
   alpha)
     target_phys_bits=64

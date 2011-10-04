@@ -90,11 +90,7 @@ void *qemu_vmalloc(size_t size)
     size_t align = QEMU_VMALLOC_ALIGN;
 
     if (size < align) {
-#ifndef __ia64__
         align = getpagesize();
-#else
-        align = 65536;
-#endif
     }
     ptr = qemu_memalign(align, size);
     trace_qemu_vmalloc(size, ptr);

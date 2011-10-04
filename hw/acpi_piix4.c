@@ -350,13 +350,6 @@ static int piix4_pm_initfn(PCIDevice *dev)
 
     pci_conf[0x40] = 0x01; /* PM io base read only bit */
 
-#if defined(TARGET_IA64)
-    pci_conf[0x40] = 0x41; /* PM io base read only bit */
-    pci_conf[0x41] = 0x1f;
-    pm_write_config(s, 0x80, 0x01, 1); /*Set default pm_io_base 0x1f40*/
-    s->pmcntrl = SCI_EN;
-#endif
-
     /* APM */
     apm_init(&s->apm, apm_ctrl_changed, s);
 

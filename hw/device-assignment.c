@@ -819,10 +819,6 @@ static int assign_irq(AssignedDevice *dev)
     irq = pci_map_irq(&dev->dev, dev->intpin);
     irq = piix_get_irq(irq);
 
-#ifdef TARGET_IA64
-    irq = ipf_map_irq(&dev->dev, irq);
-#endif
-
     if (dev->girq == irq)
         return r;
 

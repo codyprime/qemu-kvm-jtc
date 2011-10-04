@@ -28,10 +28,7 @@
 #include "cpu.h"
 #include "cache-utils.h"
 
-#if !defined(TARGET_IA64)
 #include "tcg.h"
-#endif
-
 #include "hw/hw.h"
 #include "hw/qdev.h"
 #include "osdep.h"
@@ -4149,8 +4146,6 @@ void *cpu_physical_memory_map(target_phys_addr_t addr,
 void cpu_physical_memory_unmap(void *buffer, target_phys_addr_t len,
                                int is_write, target_phys_addr_t access_len)
 {
-    unsigned long flush_len = (unsigned long)access_len;
-
     if (buffer != bounce.buffer) {
         if (is_write) {
             ram_addr_t addr1 = qemu_ram_addr_from_host_nofail(buffer);
@@ -4168,9 +4163,7 @@ void cpu_physical_memory_unmap(void *buffer, target_phys_addr_t len,
                 }
                 addr1 += l;
                 access_len -= l;
-	    }
-	    dma_flush_range((unsigned long)buffer,
-			    (unsigned long)buffer + flush_len);
+            }
         }
         if (xen_enabled()) {
             xen_invalidate_map_cache_entry(buffer);

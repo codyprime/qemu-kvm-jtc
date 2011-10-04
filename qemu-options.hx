@@ -2478,8 +2478,6 @@ DEF("no-kvm-pit-reinjection", 0, QEMU_OPTION_no_kvm_pit_reinjection,
     "-no-kvm-pit-reinjection\n"
     "                disable KVM kernel mode PIT interrupt reinjection\n",
     QEMU_ARCH_I386)
-DEF("nvram", HAS_ARG, QEMU_OPTION_nvram,
-    "-nvram FILE     provide ia64 nvram contents\n", QEMU_ARCH_ALL)
 DEF("tdf", 0, QEMU_OPTION_tdf,
     "-tdf            enable guest time drift compensation\n", QEMU_ARCH_ALL)
 DEF("kvm-shadow-memory", HAS_ARG, QEMU_OPTION_kvm_shadow_memory,

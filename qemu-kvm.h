@@ -27,13 +27,8 @@
 
 /* FIXME: share this number with kvm */
 /* FIXME: or dynamically alloc/realloc regions */
-#if defined(__ia64__)
-#define KVM_MAX_NUM_MEM_REGIONS 32u
-#define MAX_VCPUS 256
-#else
 #define KVM_MAX_NUM_MEM_REGIONS 32u
 #define MAX_VCPUS 16
-#endif
 
 #include "kvm.h"
 

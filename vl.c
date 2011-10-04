@@ -229,7 +229,6 @@ int alt_grab = 0;
 int ctrl_grab = 0;
 unsigned int nb_prom_envs = 0;
 const char *prom_envs[MAX_PROM_ENVS];
-const char *nvram = NULL;
 int boot_menu;
 uint8_t *boot_splash_filedata;
 int boot_splash_filedata_size;
@@ -3117,11 +3116,6 @@ int main(int argc, char **argv, char **envp)
                 default_cdrom = 0;
                 default_sdcard = 0;
                 break;
-#ifndef _WIN32
-            case QEMU_OPTION_nvram:
-                nvram = optarg;
-                break;
-#endif
             case QEMU_OPTION_xen_domid:
                 if (!(xen_available())) {
                     printf("Option %s not supported for this target\n", popt->name);
