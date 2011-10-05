@@ -252,7 +252,6 @@ mpc8544ds.dtb \
 multiboot.bin linuxboot.bin \
 s390-zipl.rom \
 spapr-rtas.bin slof.bin
-BLOBS += extboot.bin
 BLOBS += vapic.bin
 else
 BLOBS=

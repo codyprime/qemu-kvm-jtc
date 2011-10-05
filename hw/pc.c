@@ -59,7 +59,6 @@
 #endif
 
 #define BIOS_FILENAME "bios.bin"
-#define EXTBOOT_FILENAME "extboot.bin"
 #define VAPIC_FILENAME "vapic.bin"
 
 #define PC_MAX_BIOS_SIZE (4 * 1024 * 1024)
@@ -1050,11 +1049,6 @@ void pc_memory_init(MemoryRegion *system_memory,
                                 (uint32_t)(-bios_size),
                                 bios);
 
-    if (extboot_drive) {
-        option_rom[nb_option_roms].name = g_strdup(EXTBOOT_FILENAME);
-        option_rom[nb_option_roms].bootindex = 0;
-        nb_option_roms++;
-    }
     option_rom[nb_option_roms].name = g_strdup(VAPIC_FILENAME);
     option_rom[nb_option_roms].bootindex = -1;
     nb_option_roms++;
@@ -1205,17 +1199,5 @@ void pc_pci_device_init(PCIBus *pci_bus)
     max_bus = drive_get_max_bus(IF_SCSI);
     for (bus = 0; bus <= max_bus; bus++) {
         pci_create_simple(pci_bus, -1, "lsi53c895a");
-    }
-
-    if (extboot_drive) {
-        DriveInfo *info = extboot_drive;
-        int cyls, heads, secs;
-
-        if (info->type != IF_IDE && info->type != IF_VIRTIO) {
-            bdrv_guess_geometry(info->bdrv, &cyls, &heads, &secs);
-            bdrv_set_geometry_hint(info->bdrv, cyls, heads, secs);
-        }
-
-        extboot_init(info->bdrv);
     }
 }

@@ -16,7 +16,7 @@ QEMU_CFLAGS = $(CFLAGS)
 
 build-all: multiboot.bin linuxboot.bin
 
-build-all: extboot.bin vapic.bin
+build-all: vapic.bin
 
 %.img: %.o
 	$(call quiet-command,$(LD) -Ttext 0 -e _start -s -o $@ $<,"  Building $(TARGET_DIR)$@")

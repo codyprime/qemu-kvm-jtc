@@ -135,7 +135,7 @@ DEF("drive", HAS_ARG, QEMU_OPTION_drive,
     "       [,cyls=c,heads=h,secs=s[,trans=t]][,snapshot=on|off]\n"
     "       [,cache=writethrough|writeback|none|directsync|unsafe][,format=f]\n"
     "       [,serial=s][,addr=A][,id=name][,aio=threads|native]\n"
-    "       [,readonly=on|off][,boot=on|off]\n"
+    "       [,readonly=on|off]\n"
     "                use 'file' as a drive image\n", QEMU_ARCH_ALL)
 STEXI
 @item -drive @var{option}[,@var{option}[,@var{option}[,...]]]
@@ -183,8 +183,6 @@ host disk is full; report the error to the guest otherwise).
 The default setting is @option{werror=enospc} and @option{rerror=report}.
 @item readonly
 Open drive @option{file} as read-only. Guest write attempts will fail.
-@item boot=@var{boot}
-@var{boot} is "on" or "off" and allows for booting from non-traditional interfaces, such as virtio.
 @end table
 
 By default, writethrough caching is used for all block device.  This means that
