@@ -88,7 +88,7 @@ static QemuOptsList qemu_drive_opts = {
         },{
             .name = "boot",
             .type = QEMU_OPT_BOOL,
-            .help = "make this a boot drive",
+            .help = "(deprecated, ignored)",
         },
         { /* end of list */ }
     },
