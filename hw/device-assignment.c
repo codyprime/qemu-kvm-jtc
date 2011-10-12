@@ -246,7 +246,7 @@ static void assigned_dev_iomem_setup(PCIDevice *pci_dev, int region_num,
 
         /* deal with MSI-X MMIO page */
         if (real_region->base_addr <= r_dev->msix_table_addr &&
-                real_region->base_addr + real_region->size >=
+                real_region->base_addr + real_region->size >
                 r_dev->msix_table_addr) {
             int offset = r_dev->msix_table_addr - real_region->base_addr;
 
