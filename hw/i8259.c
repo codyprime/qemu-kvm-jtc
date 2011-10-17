@@ -61,7 +61,7 @@ typedef struct PicState {
     uint8_t elcr; /* PIIX edge/trigger selection*/
     uint8_t elcr_mask;
     qemu_irq int_out;
-    PicState2 *pics_state;
+    bool master; /* reflects /SP input pin */
     MemoryRegion base_io;
     MemoryRegion elcr_io;
 } PicState;
@@ -109,8 +109,9 @@ static int pic_get_irq(PicState *s)
     mask = s->isr;
     if (s->special_mask)
         mask &= ~s->imr;
-    if (s->special_fully_nested_mode && s == &s->pics_state->pics[0])
+    if (s->special_fully_nested_mode && s->master) {
         mask &= ~(1 << 2);
+    }
     cur_priority = get_priority(s, mask);
     if (priority < cur_priority) {
         /* higher priority found: an irq should be generated */
@@ -128,8 +129,7 @@ static void pic_update_irq(PicState *s)
     irq = pic_get_irq(s);
     if (irq >= 0) {
         DPRINTF("pic%d: imr=%x irr=%x padd=%d\n",
-                s == &s->pics_state->pics[0] ? 0 : 1, s->imr, s->irr,
-                s->priority_add);
+                s->master ? 0 : 1, s->imr, s->irr, s->priority_add);
         qemu_irq_raise(s->int_out);
     } else {
         qemu_irq_lower(s->int_out);
@@ -385,39 +385,20 @@ static void pic_ioport_write(void *opaque, target_phys_addr_t addr64,
     }
 }
 
-static uint32_t pic_poll_read(PicState *s)
-{
-    int ret;
-
-    ret = pic_get_irq(s);
-    if (ret >= 0) {
-        bool slave = (s == &isa_pic->pics[1]);
-
-        if (slave) {
-            s->pics_state->pics[0].isr &= ~(1 << 2);
-            s->pics_state->pics[0].irr &= ~(1 << 2);
-        }
-        s->irr &= ~(1 << ret);
-        s->isr &= ~(1 << ret);
-        if (slave || ret != 2) {
-            pic_update_irq(s);
-        }
-    } else {
-        ret = 0x07;
-    }
-
-    return ret;
-}
-
-static uint64_t pic_ioport_read(void *opaque, target_phys_addr_t addr1,
+static uint64_t pic_ioport_read(void *opaque, target_phys_addr_t addr,
                                 unsigned size)
 {
     PicState *s = opaque;
-    unsigned int addr = addr1;
     int ret;
 
     if (s->poll) {
-        ret = pic_poll_read(s);
+        ret = pic_get_irq(s);
+        if (ret >= 0) {
+            pic_intack(s, ret);
+            ret |= 0x80;
+        } else {
+            ret = 0;
+        }
         s->poll = 0;
     } else {
         if (addr == 0) {
@@ -430,21 +411,6 @@ static uint64_t pic_ioport_read(void *opaque, target_phys_addr_t addr1,
         }
     }
     DPRINTF("read: addr=0x%02x val=0x%02x\n", addr, ret);
-    return ret;
-}
-
-/* memory mapped interrupt status */
-/* XXX: may be the same than pic_read_irq() */
-uint32_t pic_intack_read(PicState2 *s)
-{
-    int ret;
-
-    ret = pic_poll_read(&s->pics[0]);
-    if (ret == 2)
-        ret = pic_poll_read(&s->pics[1]) + 8;
-    /* Prepare for ISR read */
-    s->pics[0].read_reg_select = 1;
-
     return ret;
 }
 
@@ -535,9 +501,11 @@ static const MemoryRegionOps pic_elcr_ioport_ops = {
 };
 
 /* XXX: add generic master/slave system */
-static void pic_init(int io_addr, int elcr_addr, PicState *s, qemu_irq int_out)
+static void pic_init(int io_addr, int elcr_addr, PicState *s, qemu_irq int_out,
+                     bool master)
 {
     s->int_out = int_out;
+    s->master = master;
 
     memory_region_init_io(&s->base_io, &pic_base_ioport_ops, s, "pic", 2);
     memory_region_init_io(&s->elcr_io, &pic_elcr_ioport_ops, s, "elcr", 1);
@@ -593,12 +561,10 @@ qemu_irq *i8259_init(qemu_irq parent_irq)
 
     s = g_malloc0(sizeof(PicState2));
     irqs = qemu_allocate_irqs(i8259_set_irq, s, 16);
-    pic_init(0x20, 0x4d0, &s->pics[0], parent_irq);
-    pic_init(0xa0, 0x4d1, &s->pics[1], irqs[2]);
+    pic_init(0x20, 0x4d0, &s->pics[0], parent_irq, true);
+    pic_init(0xa0, 0x4d1, &s->pics[1], irqs[2], false);
     s->pics[0].elcr_mask = 0xf8;
     s->pics[1].elcr_mask = 0xde;
-    s->pics[0].pics_state = s;
-    s->pics[1].pics_state = s;
     isa_pic = s;
     return irqs;
 }
@@ -609,7 +575,7 @@ static void kvm_kernel_pic_save_to_user(PicState *s)
     struct kvm_irqchip chip;
     struct kvm_pic_state *kpic;
 
-    chip.chip_id = (&s->pics_state->pics[0] == s) ?
+    chip.chip_id = s->master ?
                    KVM_IRQCHIP_PIC_MASTER :
                    KVM_IRQCHIP_PIC_SLAVE;
     kvm_get_irqchip(kvm_state, &chip);
@@ -640,7 +606,7 @@ static int kvm_kernel_pic_load_from_user(PicState *s)
     struct kvm_irqchip chip;
     struct kvm_pic_state *kpic;
 
-    chip.chip_id = (&s->pics_state->pics[0] == s) ?
+    chip.chip_id = s->master ?
                    KVM_IRQCHIP_PIC_MASTER :
                    KVM_IRQCHIP_PIC_SLAVE;
     kpic = &chip.chip.pic;
@@ -693,8 +659,8 @@ qemu_irq *kvm_i8259_init(qemu_irq parent_irq)
     kvm_pic_init1(0x20, &s->pics[0]);
     kvm_pic_init1(0xa0, &s->pics[1]);
     s->pics[0].int_out = parent_irq;
-    s->pics[0].pics_state = s;
-    s->pics[1].pics_state = s;
+    s->pics[0].master = true;
+    s->pics[1].master = false;
     isa_pic = s;
     return qemu_allocate_irqs(kvm_i8259_set_irq, s, 24);
 }
