@@ -54,6 +54,7 @@ enum {
 
 struct MilkymistUartState {
     SysBusDevice busdev;
+    MemoryRegion regs_region;
     CharDriverState *chr;
     qemu_irq irq;
 
@@ -77,7 +78,8 @@ static void uart_update_irq(MilkymistUartState *s)
     }
 }
 
-static uint32_t uart_read(void *opaque, target_phys_addr_t addr)
+static uint64_t uart_read(void *opaque, target_phys_addr_t addr,
+                          unsigned size)
 {
     MilkymistUartState *s = opaque;
     uint32_t r = 0;
@@ -105,7 +107,8 @@ static uint32_t uart_read(void *opaque, target_phys_addr_t addr)
     return r;
 }
 
-static void uart_write(void *opaque, target_phys_addr_t addr, uint32_t value)
+static void uart_write(void *opaque, target_phys_addr_t addr, uint64_t value,
+                       unsigned size)
 {
     MilkymistUartState *s = opaque;
     unsigned char ch = value;
@@ -140,16 +143,14 @@ static void uart_write(void *opaque, target_phys_addr_t addr, uint32_t value)
     uart_update_irq(s);
 }
 
-static CPUReadMemoryFunc * const uart_read_fn[] = {
-    NULL,
-    NULL,
-    &uart_read,
-};
-
-static CPUWriteMemoryFunc * const uart_write_fn[] = {
-    NULL,
-    NULL,
-    &uart_write,
+static const MemoryRegionOps uart_mmio_ops = {
+    .read = uart_read,
+    .write = uart_write,
+    .valid = {
+        .min_access_size = 4,
+        .max_access_size = 4,
+    },
+    .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
 static void uart_rx(void *opaque, const uint8_t *buf, int size)
@@ -191,13 +192,12 @@ static void milkymist_uart_reset(DeviceState *d)
 static int milkymist_uart_init(SysBusDevice *dev)
 {
     MilkymistUartState *s = FROM_SYSBUS(typeof(*s), dev);
-    int uart_regs;
 
     sysbus_init_irq(dev, &s->irq);
 
-    uart_regs = cpu_register_io_memory(uart_read_fn, uart_write_fn, s,
-            DEVICE_NATIVE_ENDIAN);
-    sysbus_init_mmio(dev, R_MAX * 4, uart_regs);
+    memory_region_init_io(&s->regs_region, &uart_mmio_ops, s,
+            "milkymist-uart", R_MAX * 4);
+    sysbus_init_mmio_region(dev, &s->regs_region);
 
     s->chr = qdev_init_chardev(&dev->qdev);
     if (s->chr) {
