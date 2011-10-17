@@ -57,7 +57,7 @@ static const int ide_irq[MAX_IDE_BUS] = { 14, 15 };
 
 const char *global_cpu_model; /* cpu hotadd */
 
-static void ioapic_init(IsaIrqState *isa_irq_state)
+static void ioapic_init(GSIState *gsi_state)
 {
     DeviceState *dev;
     SysBusDevice *d;
@@ -69,7 +69,7 @@ static void ioapic_init(IsaIrqState *isa_irq_state)
     sysbus_mmio_map(d, 0, 0xfec00000);
 
     for (i = 0; i < IOAPIC_NUM_PINS; i++) {
-        isa_irq_state->ioapic[i] = qdev_get_gpio_in(dev, i);
+        gsi_state->ioapic_irq[i] = qdev_get_gpio_in(dev, i);
     }
 }
 
@@ -91,11 +91,11 @@ static void pc_init1(MemoryRegion *system_memory,
     PCII440FXState *i440fx_state;
     int piix3_devfn = -1;
     qemu_irq *cpu_irq;
-    qemu_irq *isa_irq;
+    qemu_irq *gsi;
     qemu_irq *i8259;
     qemu_irq *cmos_s3;
     qemu_irq *smi_irq;
-    IsaIrqState *isa_irq_state;
+    GSIState *gsi_state;
     DriveInfo *hd[MAX_IDE_BUS * MAX_IDE_DEVS];
     BusState *idebus[MAX_IDE_BUS];
     ISADevice *rtc_state;
@@ -136,11 +136,11 @@ static void pc_init1(MemoryRegion *system_memory,
                        pci_enabled ? rom_memory : system_memory, &ram_memory);
     }
 
-    isa_irq_state = g_malloc0(sizeof(*isa_irq_state));
-    isa_irq = qemu_allocate_irqs(isa_irq_handler, isa_irq_state, 24);
+    gsi_state = g_malloc0(sizeof(*gsi_state));
+    gsi = qemu_allocate_irqs(gsi_handler, gsi_state, GSI_NUM_PINS);
 
     if (pci_enabled) {
-        pci_bus = i440fx_init(&i440fx_state, &piix3_devfn, isa_irq,
+        pci_bus = i440fx_init(&i440fx_state, &piix3_devfn, gsi,
                               system_memory, system_io, ram_size,
                               below_4g_mem_size,
                               0x100000000ULL - below_4g_mem_size,
@@ -158,28 +158,26 @@ static void pc_init1(MemoryRegion *system_memory,
 
     if (!xen_enabled()) {
         cpu_irq = pc_allocate_cpu_irq();
-        if (!(kvm_enabled() && kvm_irqchip_in_kernel())) {
-            i8259 = i8259_init(cpu_irq[0]);
-        } else {
-            i8259 = kvm_i8259_init(cpu_irq[0]);
-        }
+        i8259 = i8259_init(cpu_irq[0]);
     } else {
         i8259 = xen_interrupt_controller_init();
     }
 
-    isa_irq_state->i8259 = i8259;
+    for (i = 0; i < ISA_NUM_IRQS; i++) {
+        gsi_state->i8259_irq[i] = i8259[i];
+    }
     if (pci_enabled) {
-        ioapic_init(isa_irq_state);
+        ioapic_init(gsi_state);
     }
     if (!(kvm_enabled() && kvm_irqchip_in_kernel())) {
-        isa_irq = qemu_allocate_irqs(isa_irq_handler, isa_irq_state, 24);
+        gsi = qemu_allocate_irqs(gsi_handler, gsi_state, GSI_NUM_PINS);
     } else {
-        isa_irq = i8259;
+        gsi = i8259;
     }
 
-    isa_bus_irqs(isa_irq);
+    isa_bus_irqs(gsi);
 
-    pc_register_ferr_irq(isa_get_irq(13));
+    pc_register_ferr_irq(gsi[13]);
 
     pc_vga_init(pci_enabled? pci_bus: NULL);
 
@@ -188,7 +186,7 @@ static void pc_init1(MemoryRegion *system_memory,
     }
 
     /* init basic PC hardware */
-    pc_basic_device_init(isa_irq, &rtc_state, xen_enabled());
+    pc_basic_device_init(gsi, &rtc_state, xen_enabled());
 
     for(i = 0; i < nb_nics; i++) {
         NICInfo *nd = &nd_table[i];
@@ -218,7 +216,7 @@ static void pc_init1(MemoryRegion *system_memory,
         }
     }
 
-    audio_init(isa_irq, pci_enabled ? pci_bus : NULL);
+    audio_init(gsi, pci_enabled ? pci_bus : NULL);
 
     pc_cmos_init(below_4g_mem_size, above_4g_mem_size, boot_device,
                  idebus[0], idebus[1], rtc_state);
@@ -238,7 +236,7 @@ static void pc_init1(MemoryRegion *system_memory,
         smi_irq = qemu_allocate_irqs(pc_acpi_smi_interrupt, first_cpu, 1);
         /* TODO: Populate SPD eeprom data.  */
         smbus = piix4_pm_init(pci_bus, piix3_devfn + 3, 0xb100,
-                              isa_get_irq(9), *cmos_s3, *smi_irq,
+                              gsi[9], *cmos_s3, *smi_irq,
                               kvm_enabled());
         smbus_eeprom_init(smbus, 8, NULL, 0);
     }

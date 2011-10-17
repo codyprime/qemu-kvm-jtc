@@ -23,6 +23,7 @@
 #include "device_tree.h"
 #include "loader.h"
 #include "elf.h"
+#include "exec-memory.h"
 
 #define BINARY_DEVICE_TREE_FILE "bamboo.dtb"
 
@@ -108,6 +109,7 @@ static void bamboo_init(ram_addr_t ram_size,
                         const char *cpu_model)
 {
     unsigned int pci_irq_nrs[4] = { 28, 27, 26, 25 };
+    MemoryRegion *address_space_mem = get_system_memory();
     PCIBus *pcibus;
     CPUState *env;
     uint64_t elf_entry;
@@ -119,7 +121,8 @@ static void bamboo_init(ram_addr_t ram_size,
     int i;
 
     /* Setup CPU. */
-    env = ppc440ep_init(&ram_size, &pcibus, pci_irq_nrs, 1, cpu_model);
+    env = ppc440ep_init(address_space_mem, &ram_size, &pcibus,
+                        pci_irq_nrs, 1, cpu_model);
 
     if (pcibus) {
         /* Register network interfaces. */

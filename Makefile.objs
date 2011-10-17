@@ -82,7 +82,7 @@ common-obj-$(CONFIG_WIN32) += os-win32.o
 common-obj-$(CONFIG_POSIX) += os-posix.o
 
 common-obj-y += tcg-runtime.o host-utils.o
-common-obj-y += irq.o ioport.o input.o
+common-obj-y += irq.o input.o
 common-obj-$(CONFIG_PTIMER) += ptimer.o
 common-obj-$(CONFIG_MAX7310) += max7310.o
 common-obj-$(CONFIG_WM8750) += wm8750.o
@@ -183,7 +183,7 @@ user-obj-y += $(trace-obj-y)
 # libhw
 
 hw-obj-y =
-hw-obj-y += loader.o
+hw-obj-y += vl.o loader.o
 hw-obj-$(CONFIG_VIRTIO) += virtio-console.o
 hw-obj-y += usb-libhw.o
 hw-obj-$(CONFIG_VIRTIO_PCI) += virtio-pci.o
@@ -222,6 +222,7 @@ hw-obj-$(CONFIG_APPLESMC) += applesmc.o
 hw-obj-$(CONFIG_SMARTCARD) += usb-ccid.o ccid-card-passthru.o
 hw-obj-$(CONFIG_SMARTCARD_NSS) += ccid-card-emulated.o
 hw-obj-$(CONFIG_USB_REDIR) += usb-redir.o
+hw-obj-$(CONFIG_I8259) += i8259.o
 
 # PPC devices
 hw-obj-$(CONFIG_PREP_PCI) += prep_pci.o
@@ -260,6 +261,7 @@ hw-obj-$(CONFIG_RTL8139_PCI) += rtl8139.o
 hw-obj-$(CONFIG_SMC91C111) += smc91c111.o
 hw-obj-$(CONFIG_LAN9118) += lan9118.o
 hw-obj-$(CONFIG_NE2000_ISA) += ne2000-isa.o
+hw-obj-$(CONFIG_OPENCORES_ETH) += opencores_eth.o
 
 # IDE
 hw-obj-$(CONFIG_IDE_CORE) += ide/core.o ide/atapi.o
@@ -406,6 +408,9 @@ libcacard-y = cac.o event.o vcard.o vreader.o vcard_emul_nss.o vcard_emul_type.o
 qapi-nested-y = qapi-visit-core.o qmp-input-visitor.o qmp-output-visitor.o qapi-dealloc-visitor.o
 qapi-nested-y += qmp-registry.o qmp-dispatch.o
 qapi-obj-y = $(addprefix qapi/, $(qapi-nested-y))
+
+common-obj-y += qmp-marshal.o qapi-visit.o qapi-types.o $(qapi-obj-y)
+common-obj-y += qmp.o hmp.o
 
 ######################################################################
 # guest agent
