@@ -206,6 +206,39 @@ void apic_deliver_pic_intr(DeviceState *d, int level)
     }
 }
 
+static inline uint32_t kapic_reg(struct kvm_lapic_state *kapic, int reg_id);
+
+static void kvm_irqchip_deliver_nmi(void *p)
+{
+    APICState *s = p;
+    struct kvm_lapic_state klapic;
+    uint32_t lvt;
+
+    kvm_get_lapic(s->cpu_env, &klapic);
+    lvt = kapic_reg(&klapic, 0x32 + APIC_LVT_LINT1);
+
+    if (lvt & APIC_LVT_MASKED) {
+        return;
+    }
+
+    if (((lvt >> 8) & 7) != APIC_DM_NMI) {
+        return;
+    }
+
+    kvm_vcpu_ioctl(s->cpu_env, KVM_NMI);
+}
+
+void apic_deliver_nmi(DeviceState *d)
+{
+    APICState *s = DO_UPCAST(APICState, busdev.qdev, d);
+
+    if (kvm_irqchip_in_kernel()) {
+        run_on_cpu(s->cpu_env, kvm_irqchip_deliver_nmi, s);
+    } else {
+        apic_local_deliver(s, APIC_LVT_LINT1);
+    }
+}
+
 #define foreach_apic(apic, deliver_bitmask, code) \
 {\
     int __i, __j, __mask;\
