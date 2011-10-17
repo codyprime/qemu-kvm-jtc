@@ -71,7 +71,7 @@ struct PicState {
     MemoryRegion elcr_io;
 };
 
-#if defined(DEBUG_PIC) || defined (DEBUG_IRQ_COUNT)
+#if defined(DEBUG_PIC) || defined(DEBUG_IRQ_COUNT)
 static int irq_level[16];
 #endif
 #ifdef DEBUG_IRQ_COUNT
@@ -88,11 +88,14 @@ static PicState *slave_pic;
 static int get_priority(PicState *s, int mask)
 {
     int priority;
-    if (mask == 0)
+
+    if (mask == 0) {
         return 8;
+    }
     priority = 0;
-    while ((mask & (1 << ((priority + s->priority_add) & 7))) == 0)
+    while ((mask & (1 << ((priority + s->priority_add) & 7))) == 0) {
         priority++;
+    }
     return priority;
 }
 
@@ -103,14 +106,16 @@ static int pic_get_irq(PicState *s)
 
     mask = s->irr & ~s->imr;
     priority = get_priority(s, mask);
-    if (priority == 8)
+    if (priority == 8) {
         return -1;
+    }
     /* compute current priority. If special fully nested mode on the
        master, the IRQ coming from the slave is not taken into account
        for the priority computation. */
     mask = s->isr;
-    if (s->special_mask)
+    if (s->special_mask) {
         mask &= ~s->imr;
+    }
     if (s->special_fully_nested_mode && s->master) {
         mask &= ~(1 << 2);
     }
@@ -192,14 +197,16 @@ static void pic_set_irq(void *opaque, int irq, int level)
 static void pic_intack(PicState *s, int irq)
 {
     if (s->auto_eoi) {
-        if (s->rotate_on_auto_eoi)
+        if (s->rotate_on_auto_eoi) {
             s->priority_add = (irq + 1) & 7;
+        }
     } else {
         s->isr |= (1 << irq);
     }
     /* We don't clear a level sensitive interrupt here */
-    if (!(s->elcr & (1 << irq)))
+    if (!(s->elcr & (1 << irq))) {
         s->irr &= ~(1 << irq);
+    }
     pic_update_irq(s);
 }
 
@@ -225,7 +232,10 @@ int pic_read_irq(PicState *s)
             intno = s->irq_base + irq;
         }
         pic_intack(s, irq);
-#ifdef TARGET_I386
+
+        /* FIXME: limit to x86, or better, to platforms where irq0 is the
+         * timer interrupts. */
+
 	if (time_drift_fix && s->master && irq == 0) {
 	    timer_acks++;
 	    if (timer_ints_to_push > 0) {
@@ -235,7 +245,7 @@ int pic_read_irq(PicState *s)
                 pic_set_irq(s, 0, 1);
 	    }
 	}
-#endif
+
     } else {
         /* spurious IRQ on host controller */
         irq = 7;
@@ -309,18 +319,22 @@ static void pic_ioport_write(void *opaque, target_phys_addr_t addr64,
             s->init_state = 1;
             s->init4 = val & 1;
             s->single_mode = val & 2;
-            if (val & 0x08)
+            if (val & 0x08) {
                 hw_error("level sensitive irq not supported");
+            }
         } else if (val & 0x08) {
-            if (val & 0x04)
+            if (val & 0x04) {
                 s->poll = 1;
-            if (val & 0x02)
+            }
+            if (val & 0x02) {
                 s->read_reg_select = val & 1;
-            if (val & 0x40)
+            }
+            if (val & 0x40) {
                 s->special_mask = (val >> 5) & 1;
+            }
         } else {
             cmd = val >> 5;
-            switch(cmd) {
+            switch (cmd) {
             case 0:
             case 4:
                 s->rotate_on_auto_eoi = cmd >> 2;
@@ -331,8 +345,9 @@ static void pic_ioport_write(void *opaque, target_phys_addr_t addr64,
                 if (priority != 8) {
                     irq = (priority + s->priority_add) & 7;
                     s->isr &= ~(1 << irq);
-                    if (cmd == 5)
+                    if (cmd == 5) {
                         s->priority_add = (irq + 1) & 7;
+                    }
                     pic_update_irq(s);
                 }
                 break;
@@ -357,7 +372,7 @@ static void pic_ioport_write(void *opaque, target_phys_addr_t addr64,
             }
         }
     } else {
-        switch(s->init_state) {
+        switch (s->init_state) {
         case 0:
             /* normal mode */
             s->imr = val;
@@ -400,10 +415,11 @@ static uint64_t pic_ioport_read(void *opaque, target_phys_addr_t addr,
         s->poll = 0;
     } else {
         if (addr == 0) {
-            if (s->read_reg_select)
+            if (s->read_reg_select) {
                 ret = s->isr;
-            else
+            } else {
                 ret = s->irr;
+            }
         } else {
             ret = s->imr;
         }
@@ -459,7 +475,7 @@ static const VMStateDescription vmstate_pic = {
     .post_load = pic_post_load,
     .minimum_version_id = 1,
     .minimum_version_id_old = 1,
-    .fields      = (VMStateField []) {
+    .fields = (VMStateField[]) {
         VMSTATE_UINT8(last_irr, PicState),
         VMSTATE_UINT8(irr, PicState),
         VMSTATE_UINT8(imr, PicState),
@@ -523,9 +539,9 @@ void pic_info(Monitor *mon)
     int i;
     PicState *s;
 
-    if (!isa_pic)
+    if (!isa_pic) {
         return;
-
+    }
     for (i = 0; i < 2; i++) {
         s = i == 0 ? isa_pic : slave_pic;
         monitor_printf(mon, "pic%d: irr=%02x imr=%02x isr=%02x hprio=%d "
@@ -547,8 +563,9 @@ void irq_info(Monitor *mon)
     monitor_printf(mon, "IRQ statistics:\n");
     for (i = 0; i < 16; i++) {
         count = irq_count[i];
-        if (count > 0)
+        if (count > 0) {
             monitor_printf(mon, "%2d: %" PRId64 "\n", i, count);
+        }
     }
 #endif
 }
@@ -680,7 +697,8 @@ static int kvm_kernel_pic_load_from_user(PicState *s)
     return 0;
 }
 
-#ifdef KVM_CAP_IRQCHIP
+extern void apic_set_irq_delivered(void);
+
 static void kvm_i8259_set_irq(void *opaque, int irq, int level)
 {
     int pic_ret;
@@ -690,7 +708,5 @@ static void kvm_i8259_set_irq(void *opaque, int irq, int level)
         return;
     }
 }
-
-#endif
 
 device_init(pic_register)
