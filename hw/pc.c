@@ -90,17 +90,16 @@ struct e820_table {
 static struct e820_table e820_table;
 struct hpet_fw_config hpet_cfg = {.count = UINT8_MAX};
 
-void isa_irq_handler(void *opaque, int n, int level)
+void gsi_handler(void *opaque, int n, int level)
 {
-    IsaIrqState *isa = (IsaIrqState *)opaque;
+    GSIState *s = opaque;
 
-    DPRINTF("isa_irqs: %s irq %d\n", level? "raise" : "lower", n);
-    if (n < 16) {
-        qemu_set_irq(isa->i8259[n], level);
+    DPRINTF("pc: %s GSI %d\n", level ? "raising" : "lowering", n);
+    if (n < ISA_NUM_IRQS) {
+        qemu_set_irq(s->i8259_irq[n], level);
     }
-    if (isa->ioapic)
-        qemu_set_irq(isa->ioapic[n], level);
-};
+    qemu_set_irq(s->ioapic_irq[n], level);
+}
 
 static void ioport80_write(void *opaque, uint32_t addr, uint32_t data)
 {
@@ -430,6 +429,7 @@ void pc_cmos_init(ram_addr_t ram_size, ram_addr_t above_4g_mem_size,
 /* port 92 stuff: could be split off */
 typedef struct Port92State {
     ISADevice dev;
+    MemoryRegion io;
     uint8_t outport;
     qemu_irq *a20_out;
 } Port92State;
@@ -481,13 +481,22 @@ static void port92_reset(DeviceState *d)
     s->outport &= ~1;
 }
 
+static const MemoryRegionPortio port92_portio[] = {
+    { 0, 1, 1, .read = port92_read, .write = port92_write },
+    PORTIO_END_OF_LIST(),
+};
+
+static const MemoryRegionOps port92_ops = {
+    .old_portio = port92_portio
+};
+
 static int port92_initfn(ISADevice *dev)
 {
     Port92State *s = DO_UPCAST(Port92State, dev, dev);
 
-    register_ioport_read(0x92, 1, 1, port92_read, s);
-    register_ioport_write(0x92, 1, 1, port92_write, s);
-    isa_init_ioport(dev, 0x92);
+    memory_region_init_io(&s->io, &port92_ops, s, "port92", 1);
+    isa_register_ioport(dev, &s->io, 0x92);
+
     s->outport = 0;
     return 0;
 }
@@ -1122,7 +1131,7 @@ static void cpu_request_exit(void *opaque, int irq, int level)
     }
 }
 
-void pc_basic_device_init(qemu_irq *isa_irq,
+void pc_basic_device_init(qemu_irq *gsi,
                           ISADevice **rtc_state,
                           bool no_vmport)
 {
@@ -1141,8 +1150,8 @@ void pc_basic_device_init(qemu_irq *isa_irq,
         DeviceState *hpet = sysbus_try_create_simple("hpet", HPET_BASE, NULL);
 
         if (hpet) {
-            for (i = 0; i < 24; i++) {
-                sysbus_connect_irq(sysbus_from_qdev(hpet), i, isa_irq[i]);
+            for (i = 0; i < GSI_NUM_PINS; i++) {
+                sysbus_connect_irq(sysbus_from_qdev(hpet), i, gsi[i]);
             }
             rtc_irq = qdev_get_gpio_in(hpet, 0);
         }

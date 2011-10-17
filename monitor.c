@@ -1242,6 +1242,11 @@ struct bdrv_iterate_context {
     int err;
 };
 
+static void iostatus_bdrv_it(void *opaque, BlockDriverState *bs)
+{
+    bdrv_iostatus_reset(bs);
+}
+
 /**
  * do_cont(): Resume emulation.
  */
@@ -1258,6 +1263,7 @@ static int do_cont(Monitor *mon, const QDict *qdict, QObject **ret_data)
         return -1;
     }
 
+    bdrv_iterate(iostatus_bdrv_it, NULL);
     bdrv_iterate(encrypted_bdrv_it, &context);
     /* only resume the vm if all keys are set and valid */
     if (!context.err) {
