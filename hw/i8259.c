@@ -304,7 +304,10 @@ static void pic_reset(void *opaque)
 
     if (kvm_enabled() && kvm_irqchip_in_kernel()) {
         kvm_kernel_pic_load_from_user(s);
+        return;
     }
+
+   pic_update_irq(s->pics_state);
 }
 
 static void pic_ioport_write(void *opaque, target_phys_addr_t addr64,
@@ -320,8 +323,6 @@ static void pic_ioport_write(void *opaque, target_phys_addr_t addr64,
         if (val & 0x10) {
             /* init */
             pic_reset(s);
-            /* deassert a pending interrupt */
-            qemu_irq_lower(s->pics_state->pics[0].int_out);
             s->init_state = 1;
             s->init4 = val & 1;
             s->single_mode = val & 2;
