@@ -158,11 +158,7 @@ static void pc_init1(MemoryRegion *system_memory,
 
     if (!xen_enabled()) {
         cpu_irq = pc_allocate_cpu_irq();
-        if (!(kvm_enabled() && kvm_irqchip_in_kernel())) {
-            i8259 = i8259_init(cpu_irq[0]);
-        } else {
-            i8259 = kvm_i8259_init(cpu_irq[0]);
-        }
+        i8259 = i8259_init(cpu_irq[0]);
     } else {
         i8259 = xen_interrupt_controller_init();
     }
