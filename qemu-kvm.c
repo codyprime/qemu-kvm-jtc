@@ -28,10 +28,6 @@
 #error libkvm: userspace and kernel version mismatch
 #endif
 
-int kvm_irqchip = 1;
-int kvm_pit = 1;
-int kvm_pit_reinject = 1;
-
 #define ALIGN(x, y) (((x)+(y)-1) & ~((y)-1))
 
 static inline void set_gsi(KVMState *s, unsigned int gsi)

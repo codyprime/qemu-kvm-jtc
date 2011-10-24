@@ -2127,7 +2127,7 @@ static int configure_accelerator(void)
     }
 
     if (p == NULL) {
-#ifdef CONFIG_KVM
+#ifdef CONFIG_KVM_OPTIONS
         /* Use the default "accelerator", kvm */
         p = "kvm";
 #else
@@ -2263,6 +2263,12 @@ static void free_and_trace(gpointer mem)
     trace_g_free(mem);
     free(mem);
 }
+
+#ifdef CONFIG_KVM_OPTIONS
+int kvm_irqchip = 1;
+int kvm_pit = 1;
+int kvm_pit_reinject = 1;
+#endif
 
 int main(int argc, char **argv, char **envp)
 {
@@ -2929,7 +2935,7 @@ int main(int argc, char **argv, char **envp)
                 qemu_opts_reset(olist);
                 qemu_opts_parse(olist, "accel=tcg", 0);
                 break;
-#ifdef CONFIG_KVM
+#ifdef CONFIG_KVM_OPTIONS
 	    case QEMU_OPTION_no_kvm_irqchip: {
 		kvm_irqchip = 0;
 		kvm_pit = 0;
