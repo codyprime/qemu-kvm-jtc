@@ -61,6 +61,7 @@ static bool has_msr_star;
 static bool has_msr_hsave_pa;
 static bool has_msr_tsc_deadline;
 static bool has_msr_async_pf_en;
+static bool has_msr_misc_enable;
 static int lm_capable_kernel;
 
 static struct kvm_cpuid2 *try_get_cpuid(KVMState *s, int max)
@@ -590,6 +591,10 @@ static int kvm_get_supported_msrs(KVMState *s)
                     has_msr_tsc_deadline = true;
                     continue;
                 }
+                if (kvm_msr_list->indices[i] == MSR_IA32_MISC_ENABLE) {
+                    has_msr_misc_enable = true;
+                    continue;
+                }
             }
         }
 
@@ -921,6 +926,10 @@ static int kvm_put_msrs(CPUState *env, int level)
     if (has_msr_tsc_deadline) {
         kvm_msr_entry_set(&msrs[n++], MSR_IA32_TSCDEADLINE, env->tsc_deadline);
     }
+    if (has_msr_misc_enable) {
+        kvm_msr_entry_set(&msrs[n++], MSR_IA32_MISC_ENABLE,
+                          env->msr_ia32_misc_enable);
+    }
 #ifdef TARGET_X86_64
     if (lm_capable_kernel) {
         kvm_msr_entry_set(&msrs[n++], MSR_CSTAR, env->cstar);
@@ -1170,6 +1179,9 @@ static int kvm_get_msrs(CPUState *env)
     if (has_msr_tsc_deadline) {
         msrs[n++].index = MSR_IA32_TSCDEADLINE;
     }
+    if (has_msr_misc_enable) {
+        msrs[n++].index = MSR_IA32_MISC_ENABLE;
+    }
 
     if (!env->tsc_valid) {
         msrs[n++].index = MSR_IA32_TSC;
@@ -1255,6 +1267,9 @@ static int kvm_get_msrs(CPUState *env)
             break;
         case MSR_MCG_CTL:
             env->mcg_ctl = msrs[i].data;
+            break;
+        case MSR_IA32_MISC_ENABLE:
+            env->msr_ia32_misc_enable = msrs[i].data;
             break;
         default:
             if (msrs[i].index >= MSR_MC0_CTL &&
