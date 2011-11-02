@@ -81,7 +81,7 @@ common-obj-y += $(oslib-obj-y)
 common-obj-$(CONFIG_WIN32) += os-win32.o
 common-obj-$(CONFIG_POSIX) += os-posix.o
 
-common-obj-y += tcg-runtime.o host-utils.o
+common-obj-y += tcg-runtime.o host-utils.o main-loop.o
 common-obj-y += irq.o input.o
 common-obj-$(CONFIG_PTIMER) += ptimer.o
 common-obj-$(CONFIG_MAX7310) += max7310.o
@@ -307,7 +307,7 @@ sound-obj-$(CONFIG_HDA) += intel-hda.o hda-audio.o
 adlib.o fmopl.o: QEMU_CFLAGS += -DBUILD_Y8950=0
 hw-obj-$(CONFIG_SOUND) += $(sound-obj-y)
 
-9pfs-nested-$(CONFIG_VIRTFS)  = virtio-9p.o virtio-9p-debug.o
+9pfs-nested-$(CONFIG_VIRTFS)  = virtio-9p.o
 9pfs-nested-$(CONFIG_VIRTFS) += virtio-9p-local.o virtio-9p-xattr.o
 9pfs-nested-$(CONFIG_VIRTFS) += virtio-9p-xattr-user.o virtio-9p-posix-acl.o
 9pfs-nested-$(CONFIG_VIRTFS) += virtio-9p-coth.o cofs.o codir.o cofile.o

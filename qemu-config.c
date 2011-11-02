@@ -169,17 +169,20 @@ static QemuOptsList qemu_chardev_opts = {
 
 QemuOptsList qemu_fsdev_opts = {
     .name = "fsdev",
-    .implied_opt_name = "fstype",
+    .implied_opt_name = "fsdriver",
     .head = QTAILQ_HEAD_INITIALIZER(qemu_fsdev_opts.head),
     .desc = {
         {
-            .name = "fstype",
+            .name = "fsdriver",
             .type = QEMU_OPT_STRING,
         }, {
             .name = "path",
             .type = QEMU_OPT_STRING,
         }, {
             .name = "security_model",
+            .type = QEMU_OPT_STRING,
+        }, {
+            .name = "writeout",
             .type = QEMU_OPT_STRING,
         },
         { /*End of list */ }
@@ -188,11 +191,11 @@ QemuOptsList qemu_fsdev_opts = {
 
 QemuOptsList qemu_virtfs_opts = {
     .name = "virtfs",
-    .implied_opt_name = "fstype",
+    .implied_opt_name = "fsdriver",
     .head = QTAILQ_HEAD_INITIALIZER(qemu_virtfs_opts.head),
     .desc = {
         {
-            .name = "fstype",
+            .name = "fsdriver",
             .type = QEMU_OPT_STRING,
         }, {
             .name = "path",
@@ -202,6 +205,9 @@ QemuOptsList qemu_virtfs_opts = {
             .type = QEMU_OPT_STRING,
         }, {
             .name = "security_model",
+            .type = QEMU_OPT_STRING,
+        }, {
+            .name = "writeout",
             .type = QEMU_OPT_STRING,
         },
 

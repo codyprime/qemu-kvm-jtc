@@ -514,7 +514,6 @@ static int do_qmp_capabilities(Monitor *mon, const QDict *params,
     return 0;
 }
 
-static int mon_set_cpu(int cpu_index);
 static void handle_user_command(Monitor *mon, const char *cmdline);
 
 static int do_hmp_passthrough(Monitor *mon, const QDict *params,
@@ -532,7 +531,7 @@ static int do_hmp_passthrough(Monitor *mon, const QDict *params,
     cur_mon = &hmp;
 
     if (qdict_haskey(params, "cpu-index")) {
-        ret = mon_set_cpu(qdict_get_int(params, "cpu-index"));
+        ret = monitor_set_cpu(qdict_get_int(params, "cpu-index"));
         if (ret < 0) {
             cur_mon = old_mon;
             qerror_report(QERR_INVALID_PARAMETER_VALUE, "cpu-index", "a CPU number");
@@ -772,8 +771,8 @@ CommandInfoList *qmp_query_commands(Error **errp)
     return cmd_list;
 }
 
-/* get the current CPU defined by the user */
-static int mon_set_cpu(int cpu_index)
+/* set the current CPU defined by the user */
+int monitor_set_cpu(int cpu_index)
 {
     CPUState *env;
 
@@ -789,10 +788,15 @@ static int mon_set_cpu(int cpu_index)
 static CPUState *mon_get_cpu(void)
 {
     if (!cur_mon->mon_cpu) {
-        mon_set_cpu(0);
+        monitor_set_cpu(0);
     }
     cpu_synchronize_state(cur_mon->mon_cpu);
     return cur_mon->mon_cpu;
+}
+
+int monitor_get_cpu_index(void)
+{
+    return mon_get_cpu()->cpu_index;
 }
 
 static void do_info_registers(Monitor *mon)
@@ -896,17 +900,6 @@ static void do_info_cpus(Monitor *mon, QObject **ret_data)
     }
 
     *ret_data = QOBJECT(cpu_list);
-}
-
-static int do_cpu_set(Monitor *mon, const QDict *qdict, QObject **ret_data)
-{
-    int index = qdict_get_int(qdict, "index");
-    if (mon_set_cpu(index) < 0) {
-        qerror_report(QERR_INVALID_PARAMETER_VALUE, "index",
-                      "a CPU number");
-        return -1;
-    }
-    return 0;
 }
 
 static void do_cpu_set_nr(Monitor *mon, const QDict *qdict)
@@ -2963,8 +2956,7 @@ static const mon_cmd_t info_cmds[] = {
         .args_type  = "",
         .params     = "",
         .help       = "show which guest mouse is receiving events",
-        .user_print = do_info_mice_print,
-        .mhandler.info_new = do_info_mice,
+        .mhandler.info = hmp_info_mice,
     },
     {
         .name       = "vnc",
@@ -3021,8 +3013,7 @@ static const mon_cmd_t info_cmds[] = {
         .args_type  = "",
         .params     = "",
         .help       = "show migration status",
-        .user_print = do_info_migrate_print,
-        .mhandler.info_new = do_info_migrate,
+        .mhandler.info = hmp_info_migrate,
     },
     {
         .name       = "balloon",
@@ -3114,14 +3105,6 @@ static const mon_cmd_t qmp_query_cmds[] = {
         .mhandler.info_new = do_pci_info,
     },
     {
-        .name       = "mice",
-        .args_type  = "",
-        .params     = "",
-        .help       = "show which guest mouse is receiving events",
-        .user_print = do_info_mice_print,
-        .mhandler.info_new = do_info_mice,
-    },
-    {
         .name       = "vnc",
         .args_type  = "",
         .params     = "",
@@ -3139,14 +3122,6 @@ static const mon_cmd_t qmp_query_cmds[] = {
         .mhandler.info_new = do_info_spice,
     },
 #endif
-    {
-        .name       = "migrate",
-        .args_type  = "",
-        .params     = "",
-        .help       = "show migration status",
-        .user_print = do_info_migrate_print,
-        .mhandler.info_new = do_info_migrate,
-    },
     {
         .name       = "balloon",
         .args_type  = "",

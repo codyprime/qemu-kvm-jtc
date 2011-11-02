@@ -331,10 +331,7 @@ EQMP
     {
         .name       = "cpu",
         .args_type  = "index:i",
-        .params     = "index",
-        .help       = "set the default CPU",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_cpu_set,
+        .mhandler.cmd_new = qmp_marshal_input_cpu,
     },
 
 SQMP
@@ -710,10 +707,10 @@ Arguments:
 
 Example:
 
--> { "execute": "blockdev-snapshot", "arguments": { "device": "ide-hd0",
-                                                    "snapshot-file":
-                                                    "/some/place/my-image",
-                                                    "format": "qcow2" } }
+-> { "execute": "blockdev-snapshot-sync", "arguments": { "device": "ide-hd0",
+                                                         "snapshot-file":
+                                                        "/some/place/my-image",
+                                                        "format": "qcow2" } }
 <- { "return": {} }
 
 EQMP
@@ -1663,6 +1660,12 @@ Example:
 
 EQMP
 
+    {
+        .name       = "query-mice",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_mice,
+    },
+
 SQMP
 query-vnc
 ---------
@@ -1912,6 +1915,12 @@ Examples:
    }
 
 EQMP
+
+    {
+        .name       = "query-migrate",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_migrate,
+    },
 
 SQMP
 query-balloon
