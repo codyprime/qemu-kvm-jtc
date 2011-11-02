@@ -1198,6 +1198,12 @@ Example:
 
 EQMP
 
+    {
+        .name       = "query-block",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_block,
+    },
+
 SQMP
 query-blockstats
 ----------------
@@ -1304,6 +1310,12 @@ Example:
    }
 
 EQMP
+
+    {
+        .name       = "query-blockstats",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_blockstats,
+    },
 
 SQMP
 query-cpus
@@ -1564,6 +1576,12 @@ Note: This example has been shortened as the real response is too long.
 
 EQMP
 
+    {
+        .name       = "query-pci",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_pci,
+    },
+
 SQMP
 query-kvm
 ---------
@@ -1729,6 +1747,12 @@ Example:
 
 EQMP
 
+    {
+        .name       = "query-vnc",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_vnc,
+    },
+
 SQMP
 query-spice
 -----------
@@ -1798,6 +1822,14 @@ Example:
    }
 
 EQMP
+
+#if defined(CONFIG_SPICE)
+    {
+        .name       = "query-spice",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_spice,
+    },
+#endif
 
 SQMP
 query-name
@@ -1963,3 +1995,8 @@ Example:
 
 EQMP
 
+    {
+        .name       = "query-balloon",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_query_balloon,
+    },

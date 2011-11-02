@@ -2695,16 +2695,14 @@ static const mon_cmd_t info_cmds[] = {
         .args_type  = "",
         .params     = "",
         .help       = "show the block devices",
-        .user_print = bdrv_info_print,
-        .mhandler.info_new = bdrv_info,
+        .mhandler.info = hmp_info_block,
     },
     {
         .name       = "blockstats",
         .args_type  = "",
         .params     = "",
         .help       = "show block device statistics",
-        .user_print = bdrv_stats_print,
-        .mhandler.info_new = bdrv_info_stats,
+        .mhandler.info = hmp_info_blockstats,
     },
     {
         .name       = "registers",
@@ -2761,8 +2759,7 @@ static const mon_cmd_t info_cmds[] = {
         .args_type  = "",
         .params     = "",
         .help       = "show PCI info",
-        .user_print = do_pci_info_print,
-        .mhandler.info_new = do_pci_info,
+        .mhandler.info = hmp_info_pci,
     },
 #if defined(TARGET_I386) || defined(TARGET_SH4) || defined(TARGET_SPARC) || \
     defined(TARGET_PPC)
@@ -2872,8 +2869,7 @@ static const mon_cmd_t info_cmds[] = {
         .args_type  = "",
         .params     = "",
         .help       = "show the vnc server status",
-        .user_print = do_info_vnc_print,
-        .mhandler.info_new = do_info_vnc,
+        .mhandler.info = hmp_info_vnc,
     },
 #if defined(CONFIG_SPICE)
     {
@@ -2881,8 +2877,7 @@ static const mon_cmd_t info_cmds[] = {
         .args_type  = "",
         .params     = "",
         .help       = "show the spice server status",
-        .user_print = do_info_spice_print,
-        .mhandler.info_new = do_info_spice,
+        .mhandler.info = hmp_info_spice,
     },
 #endif
     {
@@ -2929,9 +2924,7 @@ static const mon_cmd_t info_cmds[] = {
         .args_type  = "",
         .params     = "",
         .help       = "show balloon information",
-        .user_print = monitor_print_balloon,
-        .mhandler.info_async = do_info_balloon,
-        .flags      = MONITOR_CMD_ASYNC,
+        .mhandler.info = hmp_info_balloon,
     },
     {
         .name       = "qtree",
@@ -2981,57 +2974,6 @@ static const mon_cmd_t qmp_cmds[] = {
 };
 
 static const mon_cmd_t qmp_query_cmds[] = {
-    {
-        .name       = "block",
-        .args_type  = "",
-        .params     = "",
-        .help       = "show the block devices",
-        .user_print = bdrv_info_print,
-        .mhandler.info_new = bdrv_info,
-    },
-    {
-        .name       = "blockstats",
-        .args_type  = "",
-        .params     = "",
-        .help       = "show block device statistics",
-        .user_print = bdrv_stats_print,
-        .mhandler.info_new = bdrv_info_stats,
-    },
-    {
-        .name       = "pci",
-        .args_type  = "",
-        .params     = "",
-        .help       = "show PCI info",
-        .user_print = do_pci_info_print,
-        .mhandler.info_new = do_pci_info,
-    },
-    {
-        .name       = "vnc",
-        .args_type  = "",
-        .params     = "",
-        .help       = "show the vnc server status",
-        .user_print = do_info_vnc_print,
-        .mhandler.info_new = do_info_vnc,
-    },
-#if defined(CONFIG_SPICE)
-    {
-        .name       = "spice",
-        .args_type  = "",
-        .params     = "",
-        .help       = "show the spice server status",
-        .user_print = do_info_spice_print,
-        .mhandler.info_new = do_info_spice,
-    },
-#endif
-    {
-        .name       = "balloon",
-        .args_type  = "",
-        .params     = "",
-        .help       = "show balloon information",
-        .user_print = monitor_print_balloon,
-        .mhandler.info_async = do_info_balloon,
-        .flags      = MONITOR_CMD_ASYNC,
-    },
     { /* NULL */ },
 };
 
