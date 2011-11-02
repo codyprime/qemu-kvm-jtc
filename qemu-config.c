@@ -184,7 +184,11 @@ QemuOptsList qemu_fsdev_opts = {
         }, {
             .name = "writeout",
             .type = QEMU_OPT_STRING,
+        }, {
+            .name = "readonly",
+            .type = QEMU_OPT_BOOL,
         },
+
         { /*End of list */ }
     },
 };
@@ -209,6 +213,9 @@ QemuOptsList qemu_virtfs_opts = {
         }, {
             .name = "writeout",
             .type = QEMU_OPT_STRING,
+        }, {
+            .name = "readonly",
+            .type = QEMU_OPT_BOOL,
         },
 
         { /*End of list */ }

@@ -19,10 +19,10 @@
 #include <spice-experimental.h>
 
 #include <netdb.h>
-#include <pthread.h>
 
 #include "qemu-common.h"
 #include "qemu-spice.h"
+#include "qemu-thread.h"
 #include "qemu-timer.h"
 #include "qemu-queue.h"
 #include "qemu-x509.h"
@@ -46,7 +46,7 @@ static char *auth_passwd;
 static time_t auth_expires = TIME_MAX;
 int using_spice = 0;
 
-static pthread_t me;
+static QemuThread me;
 
 struct SpiceTimer {
     QEMUTimer *timer;
@@ -134,7 +134,7 @@ static SpiceWatch *watch_add(int fd, int event_mask, SpiceWatchFunc func, void *
 
 static void watch_remove(SpiceWatch *watch)
 {
-    watch_update_mask(watch, 0);
+    qemu_set_fd_handler(watch->fd, NULL, NULL, NULL);
     QTAILQ_REMOVE(&watches, watch, next);
     g_free(watch);
 }
@@ -214,7 +214,7 @@ static void channel_event(int event, SpiceChannelEventInfo *info)
      * thread and grab the iothread lock if so before calling qemu
      * functions.
      */
-    bool need_lock = !pthread_equal(me, pthread_self());
+    bool need_lock = !qemu_thread_is_self(&me);
     if (need_lock) {
         qemu_mutex_lock_iothread();
     }
@@ -272,6 +272,38 @@ static SpiceCoreInterface core_interface = {
     .channel_event      = channel_event,
 #endif
 };
+
+#ifdef SPICE_INTERFACE_MIGRATION
+typedef struct SpiceMigration {
+    SpiceMigrateInstance sin;
+    struct {
+        MonitorCompletion *cb;
+        void *opaque;
+    } connect_complete;
+} SpiceMigration;
+
+static void migrate_connect_complete_cb(SpiceMigrateInstance *sin);
+
+static const SpiceMigrateInterface migrate_interface = {
+    .base.type = SPICE_INTERFACE_MIGRATION,
+    .base.description = "migration",
+    .base.major_version = SPICE_INTERFACE_MIGRATION_MAJOR,
+    .base.minor_version = SPICE_INTERFACE_MIGRATION_MINOR,
+    .migrate_connect_complete = migrate_connect_complete_cb,
+    .migrate_end_complete = NULL,
+};
+
+static SpiceMigration spice_migrate;
+
+static void migrate_connect_complete_cb(SpiceMigrateInstance *sin)
+{
+    SpiceMigration *sm = container_of(sin, SpiceMigration, sin);
+    if (sm->connect_complete.cb) {
+        sm->connect_complete.cb(sm->connect_complete.opaque, NULL);
+    }
+    sm->connect_complete.cb = NULL;
+}
+#endif
 
 /* config string parsing */
 
@@ -382,7 +414,7 @@ SpiceInfo *qmp_query_spice(Error **errp)
 
     info = g_malloc0(sizeof(*info));
 
-    if (!spice_server) {
+    if (!spice_server || !opts) {
         info->enabled = false;
         return info;
     }
@@ -426,18 +458,39 @@ static void migration_state_notifier(Notifier *notifier, void *data)
 {
     MigrationState *s = data;
 
-    if (migration_has_finished(s)) {
+    if (migration_is_active(s)) {
+#ifdef SPICE_INTERFACE_MIGRATION
+        spice_server_migrate_start(spice_server);
+#endif
+    } else if (migration_has_finished(s)) {
 #if SPICE_SERVER_VERSION >= 0x000701 /* 0.7.1 */
+#ifndef SPICE_INTERFACE_MIGRATION
         spice_server_migrate_switch(spice_server);
+#else
+        spice_server_migrate_end(spice_server, true);
+    } else if (migration_has_failed(s)) {
+        spice_server_migrate_end(spice_server, false);
+#endif
 #endif
     }
 }
 
 int qemu_spice_migrate_info(const char *hostname, int port, int tls_port,
-                            const char *subject)
+                            const char *subject,
+                            MonitorCompletion *cb, void *opaque)
 {
-    return spice_server_migrate_info(spice_server, hostname,
-                                     port, tls_port, subject);
+    int ret;
+#ifdef SPICE_INTERFACE_MIGRATION
+    spice_migrate.connect_complete.cb = cb;
+    spice_migrate.connect_complete.opaque = opaque;
+    ret = spice_server_migrate_connect(spice_server, hostname,
+                                       port, tls_port, subject);
+#else
+    ret = spice_server_migrate_info(spice_server, hostname,
+                                    port, tls_port, subject);
+    cb(opaque, NULL);
+#endif
+    return ret;
 }
 
 static int add_channel(const char *name, const char *value, void *opaque)
@@ -480,7 +533,7 @@ void qemu_spice_init(void)
     spice_image_compression_t compression;
     spice_wan_compression_t wan_compr;
 
-    me = pthread_self();
+    qemu_thread_get_self(&me);
 
    if (!opts) {
         return;
@@ -627,6 +680,11 @@ void qemu_spice_init(void)
 
     migration_state.notify = migration_state_notifier;
     add_migration_state_change_notifier(&migration_state);
+#ifdef SPICE_INTERFACE_MIGRATION
+    spice_migrate.sin.base.sif = &migrate_interface.base;
+    spice_migrate.connect_complete.cb = NULL;
+    qemu_spice_add_interface(&spice_migrate.sin.base);
+#endif
 
     qemu_spice_input_init();
     qemu_spice_audio_init();

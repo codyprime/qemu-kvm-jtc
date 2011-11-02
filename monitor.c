@@ -123,8 +123,6 @@ typedef struct mon_cmd_t {
     void (*user_print)(Monitor *mon, const QObject *data);
     union {
         void (*info)(Monitor *mon);
-        void (*info_new)(Monitor *mon, QObject **ret_data);
-        int  (*info_async)(Monitor *mon, MonitorCompletion *cb, void *opaque);
         void (*cmd)(Monitor *mon, const QDict *qdict);
         int  (*cmd_new)(Monitor *mon, const QDict *params, QObject **ret_data);
         int  (*cmd_async)(Monitor *mon, const QDict *params,
@@ -205,7 +203,6 @@ static const mon_cmd_t mon_cmds[];
 static const mon_cmd_t info_cmds[];
 
 static const mon_cmd_t qmp_cmds[];
-static const mon_cmd_t qmp_query_cmds[];
 
 Monitor *cur_mon;
 Monitor *default_mon;
@@ -663,11 +660,6 @@ static int qmp_async_cmd_handler(Monitor *mon, const mon_cmd_t *cmd,
     return cmd->mhandler.cmd_async(mon, params, qmp_monitor_complete, mon);
 }
 
-static void qmp_async_info_handler(Monitor *mon, const mon_cmd_t *cmd)
-{
-    cmd->mhandler.info_async(mon, qmp_monitor_complete, mon);
-}
-
 static void user_async_cmd_handler(Monitor *mon, const mon_cmd_t *cmd,
                                    const QDict *params)
 {
@@ -679,21 +671,6 @@ static void user_async_cmd_handler(Monitor *mon, const mon_cmd_t *cmd,
     monitor_suspend(mon);
     ret = cmd->mhandler.cmd_async(mon, params,
                                   user_monitor_complete, cb_data);
-    if (ret < 0) {
-        monitor_resume(mon);
-        g_free(cb_data);
-    }
-}
-
-static void user_async_info_handler(Monitor *mon, const mon_cmd_t *cmd)
-{
-    int ret;
-
-    MonitorCompletionData *cb_data = g_malloc(sizeof(*cb_data));
-    cb_data->mon = mon;
-    cb_data->user_print = cmd->user_print;
-    monitor_suspend(mon);
-    ret = cmd->mhandler.info_async(mon, user_monitor_complete, cb_data);
     if (ret < 0) {
         monitor_resume(mon);
         g_free(cb_data);
@@ -718,35 +695,11 @@ static void do_info(Monitor *mon, const QDict *qdict)
         goto help;
     }
 
-    if (handler_is_async(cmd)) {
-        user_async_info_handler(mon, cmd);
-    } else if (handler_is_qobject(cmd)) {
-        QObject *info_data = NULL;
-
-        cmd->mhandler.info_new(mon, &info_data);
-        if (info_data) {
-            cmd->user_print(mon, info_data);
-            qobject_decref(info_data);
-        }
-    } else {
-        cmd->mhandler.info(mon);
-    }
-
+    cmd->mhandler.info(mon);
     return;
 
 help:
     help_cmd(mon, "info");
-}
-
-static CommandInfoList *alloc_cmd_entry(const char *cmd_name)
-{
-    CommandInfoList *info;
-
-    info = g_malloc0(sizeof(*info));
-    info->value = g_malloc0(sizeof(*info->value));
-    info->value->name = g_strdup(cmd_name);
-
-    return info;
 }
 
 CommandInfoList *qmp_query_commands(Error **errp)
@@ -755,15 +708,10 @@ CommandInfoList *qmp_query_commands(Error **errp)
     const mon_cmd_t *cmd;
 
     for (cmd = qmp_cmds; cmd->name != NULL; cmd++) {
-        info = alloc_cmd_entry(cmd->name);
-        info->next = cmd_list;
-        cmd_list = info;
-    }
+        info = g_malloc0(sizeof(*info));
+        info->value = g_malloc0(sizeof(*info->value));
+        info->value->name = g_strdup(cmd->name);
 
-    for (cmd = qmp_query_cmds; cmd->name != NULL; cmd++) {
-        char buf[128];
-        snprintf(buf, sizeof(buf), "query-%s", cmd->name);
-        info = alloc_cmd_entry(buf);
         info->next = cmd_list;
         cmd_list = info;
     }
@@ -1077,7 +1025,8 @@ static int add_graphics_client(Monitor *mon, const QDict *qdict, QObject **ret_d
     return -1;
 }
 
-static int client_migrate_info(Monitor *mon, const QDict *qdict, QObject **ret_data)
+static int client_migrate_info(Monitor *mon, const QDict *qdict,
+                               MonitorCompletion cb, void *opaque)
 {
     const char *protocol = qdict_get_str(qdict, "protocol");
     const char *hostname = qdict_get_str(qdict, "hostname");
@@ -1092,7 +1041,8 @@ static int client_migrate_info(Monitor *mon, const QDict *qdict, QObject **ret_d
             return -1;
         }
 
-        ret = qemu_spice_migrate_info(hostname, port, tls_port, subject);
+        ret = qemu_spice_migrate_info(hostname, port, tls_port, subject,
+                                      cb, opaque);
         if (ret != 0) {
             qerror_report(QERR_UNDEFINED_ERROR);
             return -1;
@@ -2973,10 +2923,6 @@ static const mon_cmd_t qmp_cmds[] = {
     { /* NULL */ },
 };
 
-static const mon_cmd_t qmp_query_cmds[] = {
-    { /* NULL */ },
-};
-
 /*******************************************************************/
 
 static const char *pch;
@@ -3310,55 +3256,55 @@ static const MonitorDef monitor_defs[] = {
 #endif
     { "tbr", offsetof(CPUState, tbr) },
     { "fsr", offsetof(CPUState, fsr) },
-    { "f0", offsetof(CPUState, fpr[0]) },
-    { "f1", offsetof(CPUState, fpr[1]) },
-    { "f2", offsetof(CPUState, fpr[2]) },
-    { "f3", offsetof(CPUState, fpr[3]) },
-    { "f4", offsetof(CPUState, fpr[4]) },
-    { "f5", offsetof(CPUState, fpr[5]) },
-    { "f6", offsetof(CPUState, fpr[6]) },
-    { "f7", offsetof(CPUState, fpr[7]) },
-    { "f8", offsetof(CPUState, fpr[8]) },
-    { "f9", offsetof(CPUState, fpr[9]) },
-    { "f10", offsetof(CPUState, fpr[10]) },
-    { "f11", offsetof(CPUState, fpr[11]) },
-    { "f12", offsetof(CPUState, fpr[12]) },
-    { "f13", offsetof(CPUState, fpr[13]) },
-    { "f14", offsetof(CPUState, fpr[14]) },
-    { "f15", offsetof(CPUState, fpr[15]) },
-    { "f16", offsetof(CPUState, fpr[16]) },
-    { "f17", offsetof(CPUState, fpr[17]) },
-    { "f18", offsetof(CPUState, fpr[18]) },
-    { "f19", offsetof(CPUState, fpr[19]) },
-    { "f20", offsetof(CPUState, fpr[20]) },
-    { "f21", offsetof(CPUState, fpr[21]) },
-    { "f22", offsetof(CPUState, fpr[22]) },
-    { "f23", offsetof(CPUState, fpr[23]) },
-    { "f24", offsetof(CPUState, fpr[24]) },
-    { "f25", offsetof(CPUState, fpr[25]) },
-    { "f26", offsetof(CPUState, fpr[26]) },
-    { "f27", offsetof(CPUState, fpr[27]) },
-    { "f28", offsetof(CPUState, fpr[28]) },
-    { "f29", offsetof(CPUState, fpr[29]) },
-    { "f30", offsetof(CPUState, fpr[30]) },
-    { "f31", offsetof(CPUState, fpr[31]) },
+    { "f0", offsetof(CPUState, fpr[0].l.upper) },
+    { "f1", offsetof(CPUState, fpr[0].l.lower) },
+    { "f2", offsetof(CPUState, fpr[1].l.upper) },
+    { "f3", offsetof(CPUState, fpr[1].l.lower) },
+    { "f4", offsetof(CPUState, fpr[2].l.upper) },
+    { "f5", offsetof(CPUState, fpr[2].l.lower) },
+    { "f6", offsetof(CPUState, fpr[3].l.upper) },
+    { "f7", offsetof(CPUState, fpr[3].l.lower) },
+    { "f8", offsetof(CPUState, fpr[4].l.upper) },
+    { "f9", offsetof(CPUState, fpr[4].l.lower) },
+    { "f10", offsetof(CPUState, fpr[5].l.upper) },
+    { "f11", offsetof(CPUState, fpr[5].l.lower) },
+    { "f12", offsetof(CPUState, fpr[6].l.upper) },
+    { "f13", offsetof(CPUState, fpr[6].l.lower) },
+    { "f14", offsetof(CPUState, fpr[7].l.upper) },
+    { "f15", offsetof(CPUState, fpr[7].l.lower) },
+    { "f16", offsetof(CPUState, fpr[8].l.upper) },
+    { "f17", offsetof(CPUState, fpr[8].l.lower) },
+    { "f18", offsetof(CPUState, fpr[9].l.upper) },
+    { "f19", offsetof(CPUState, fpr[9].l.lower) },
+    { "f20", offsetof(CPUState, fpr[10].l.upper) },
+    { "f21", offsetof(CPUState, fpr[10].l.lower) },
+    { "f22", offsetof(CPUState, fpr[11].l.upper) },
+    { "f23", offsetof(CPUState, fpr[11].l.lower) },
+    { "f24", offsetof(CPUState, fpr[12].l.upper) },
+    { "f25", offsetof(CPUState, fpr[12].l.lower) },
+    { "f26", offsetof(CPUState, fpr[13].l.upper) },
+    { "f27", offsetof(CPUState, fpr[13].l.lower) },
+    { "f28", offsetof(CPUState, fpr[14].l.upper) },
+    { "f29", offsetof(CPUState, fpr[14].l.lower) },
+    { "f30", offsetof(CPUState, fpr[15].l.upper) },
+    { "f31", offsetof(CPUState, fpr[15].l.lower) },
 #ifdef TARGET_SPARC64
-    { "f32", offsetof(CPUState, fpr[32]) },
-    { "f34", offsetof(CPUState, fpr[34]) },
-    { "f36", offsetof(CPUState, fpr[36]) },
-    { "f38", offsetof(CPUState, fpr[38]) },
-    { "f40", offsetof(CPUState, fpr[40]) },
-    { "f42", offsetof(CPUState, fpr[42]) },
-    { "f44", offsetof(CPUState, fpr[44]) },
-    { "f46", offsetof(CPUState, fpr[46]) },
-    { "f48", offsetof(CPUState, fpr[48]) },
-    { "f50", offsetof(CPUState, fpr[50]) },
-    { "f52", offsetof(CPUState, fpr[52]) },
-    { "f54", offsetof(CPUState, fpr[54]) },
-    { "f56", offsetof(CPUState, fpr[56]) },
-    { "f58", offsetof(CPUState, fpr[58]) },
-    { "f60", offsetof(CPUState, fpr[60]) },
-    { "f62", offsetof(CPUState, fpr[62]) },
+    { "f32", offsetof(CPUState, fpr[16]) },
+    { "f34", offsetof(CPUState, fpr[17]) },
+    { "f36", offsetof(CPUState, fpr[18]) },
+    { "f38", offsetof(CPUState, fpr[19]) },
+    { "f40", offsetof(CPUState, fpr[20]) },
+    { "f42", offsetof(CPUState, fpr[21]) },
+    { "f44", offsetof(CPUState, fpr[22]) },
+    { "f46", offsetof(CPUState, fpr[23]) },
+    { "f48", offsetof(CPUState, fpr[24]) },
+    { "f50", offsetof(CPUState, fpr[25]) },
+    { "f52", offsetof(CPUState, fpr[26]) },
+    { "f54", offsetof(CPUState, fpr[27]) },
+    { "f56", offsetof(CPUState, fpr[28]) },
+    { "f58", offsetof(CPUState, fpr[29]) },
+    { "f60", offsetof(CPUState, fpr[30]) },
+    { "f62", offsetof(CPUState, fpr[31]) },
     { "asi", offsetof(CPUState, asi) },
     { "pstate", offsetof(CPUState, pstate) },
     { "cansave", offsetof(CPUState, cansave) },
@@ -3769,11 +3715,6 @@ static const mon_cmd_t *search_dispatch_table(const mon_cmd_t *disp_table,
 static const mon_cmd_t *monitor_find_command(const char *cmdname)
 {
     return search_dispatch_table(mon_cmds, cmdname);
-}
-
-static const mon_cmd_t *qmp_find_query_cmd(const char *info_item)
-{
-    return search_dispatch_table(qmp_query_cmds, info_item);
 }
 
 static const mon_cmd_t *qmp_find_cmd(const char *cmdname)
@@ -4699,22 +4640,6 @@ static QDict *qmp_check_input_obj(QObject *input_obj)
     return input_dict;
 }
 
-static void qmp_call_query_cmd(Monitor *mon, const mon_cmd_t *cmd)
-{
-    QObject *ret_data = NULL;
-
-    if (handler_is_async(cmd)) {
-        qmp_async_info_handler(mon, cmd);
-        if (monitor_has_error(mon)) {
-            monitor_protocol_emitter(mon, NULL);
-        }
-    } else {
-        cmd->mhandler.info_new(mon, &ret_data);
-        monitor_protocol_emitter(mon, ret_data);
-        qobject_decref(ret_data);
-    }
-}
-
 static void qmp_call_cmd(Monitor *mon, const mon_cmd_t *cmd,
                          const QDict *params)
 {
@@ -4735,10 +4660,9 @@ static void handle_qmp_command(JSONMessageParser *parser, QList *tokens)
     QObject *obj;
     QDict *input, *args;
     const mon_cmd_t *cmd;
+    const char *cmd_name;
     Monitor *mon = cur_mon;
-    const char *cmd_name, *query_cmd;
 
-    query_cmd = NULL;
     args = input = NULL;
 
     obj = json_parser_parse(tokens, NULL);
@@ -4765,9 +4689,6 @@ static void handle_qmp_command(JSONMessageParser *parser, QList *tokens)
     }
 
     cmd = qmp_find_cmd(cmd_name);
-    if (!cmd && strstart(cmd_name, "query-", &query_cmd)) {
-        cmd = qmp_find_query_cmd(query_cmd);
-    }
     if (!cmd) {
         qerror_report(QERR_COMMAND_NOT_FOUND, cmd_name);
         goto err_out;
@@ -4786,9 +4707,7 @@ static void handle_qmp_command(JSONMessageParser *parser, QList *tokens)
         goto err_out;
     }
 
-    if (query_cmd) {
-        qmp_call_query_cmd(mon, cmd);
-    } else if (handler_is_async(cmd)) {
+    if (handler_is_async(cmd)) {
         err = qmp_async_cmd_handler(mon, cmd, args);
         if (err) {
             /* emit the error response */

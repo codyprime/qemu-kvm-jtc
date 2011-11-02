@@ -216,7 +216,7 @@ static void migrate_fd_put_notify(void *opaque)
 
     qemu_set_fd_handler2(s->fd, NULL, NULL, NULL, NULL);
     qemu_file_put_notify(s->file);
-    if (qemu_file_get_error(s->file)) {
+    if (s->file && qemu_file_get_error(s->file)) {
         migrate_fd_error(s);
     }
 }
@@ -336,9 +336,20 @@ void remove_migration_state_change_notifier(Notifier *notify)
     notifier_list_remove(&migration_state_notifiers, notify);
 }
 
+bool migration_is_active(MigrationState *s)
+{
+    return s->state == MIG_STATE_ACTIVE;
+}
+
 bool migration_has_finished(MigrationState *s)
 {
     return s->state == MIG_STATE_COMPLETED;
+}
+
+bool migration_has_failed(MigrationState *s)
+{
+    return (s->state == MIG_STATE_CANCELLED ||
+            s->state == MIG_STATE_ERROR);
 }
 
 void migrate_fd_connect(MigrationState *s)
