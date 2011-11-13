@@ -461,8 +461,11 @@ int qemu_timedate_diff(struct tm *tm)
     if (rtc_date_offset == -1)
         if (rtc_utc)
             seconds = mktimegm(tm);
-        else
-            seconds = mktime(tm);
+        else {
+            struct tm tmp = *tm;
+            tmp.tm_isdst = -1; /* use timezone to figure it out */
+            seconds = mktime(&tmp);
+	}
     else
         seconds = mktimegm(tm) + rtc_date_offset;
 
@@ -913,8 +916,8 @@ char *get_boot_devices_list(uint32_t *size)
         } else if (devpath) {
             bootpath = devpath;
         } else {
+            assert(i->suffix);
             bootpath = g_strdup(i->suffix);
-            assert(bootpath);
         }
 
         if (total) {
@@ -3124,6 +3127,11 @@ int main(int argc, char **argv, char **envp)
         data_dir = CONFIG_QEMU_DATADIR;
     }
 
+    if (machine == NULL) {
+        fprintf(stderr, "No machine found.\n");
+        exit(1);
+    }
+
     /*
      * Default to max_cpus = smp_cpus, in case the user doesn't
      * specify a max_cpus value.
@@ -3259,6 +3267,11 @@ int main(int argc, char **argv, char **envp)
 
     if (init_timer_alarm() < 0) {
         fprintf(stderr, "could not initialize alarm timer\n");
+        exit(1);
+    }
+
+    if (icount_option && (kvm_enabled() || xen_enabled())) {
+        fprintf(stderr, "-icount is not allowed with kvm or xen\n");
         exit(1);
     }
     configure_icount(icount_option);

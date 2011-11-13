@@ -139,6 +139,7 @@ xen=""
 xen_ctrl_version=""
 linux_aio=""
 attr=""
+libattr=""
 xfs=""
 
 vhost_net="no"
@@ -148,6 +149,7 @@ debug_tcg="no"
 debug_mon="no"
 debug="no"
 strip_opt="yes"
+tcg_interpreter="no"
 bigendian="no"
 mingw32="no"
 EXESUF=""
@@ -668,6 +670,10 @@ for opt do
   ;;
   --enable-kvm) kvm="yes"
   ;;
+  --disable-tcg-interpreter) tcg_interpreter="no"
+  ;;
+  --enable-tcg-interpreter) tcg_interpreter="yes"
+  ;;
   --disable-kvm-pit) kvm_cap_pit="no"
   ;;
   --enable-kvm-pit) kvm_cap_pit="yes"
@@ -1033,6 +1039,7 @@ echo "  --enable-bluez           enable bluez stack connectivity"
 echo "  --disable-slirp          disable SLIRP userspace network connectivity"
 echo "  --disable-kvm            disable KVM acceleration support"
 echo "  --enable-kvm             enable KVM acceleration support"
+echo "  --enable-tcg-interpreter enable TCG with bytecode interpreter (TCI)"
 echo "  --disable-kvm-pit        disable KVM pit support"
 echo "  --enable-kvm-pit         enable KVM pit support"
 echo "  --disable-kvm-device-assignment  disable KVM device assignment support"
@@ -1058,6 +1065,7 @@ echo "  --fmod-lib               path to FMOD library"
 echo "  --fmod-inc               path to FMOD includes"
 echo "  --oss-lib                path to OSS library"
 echo "  --enable-uname-release=R Return R for uname -r in usermode emulation"
+echo "  --cpu=CPU                Build for host CPU [$cpu]"
 echo "  --sparc_cpu=V            Build qemu for Sparc architecture v7, v8, v8plus, v8plusa, v9"
 echo "  --disable-uuid           disable uuid support"
 echo "  --enable-uuid            enable uuid support"
@@ -1984,12 +1992,20 @@ if test "$attr" != "no" ; then
   cat > $TMPC <<EOF
 #include <stdio.h>
 #include <sys/types.h>
+#ifdef CONFIG_LIBATTR
 #include <attr/xattr.h>
+#else
+#include <sys/xattr.h>
+#endif
 int main(void) { getxattr(NULL, NULL, NULL, 0); setxattr(NULL, NULL, NULL, 0, 0); return 0; }
 EOF
-  if compile_prog "" "-lattr" ; then
+  if compile_prog "" "" ; then
+    attr=yes
+  # Older distros have <attr/xattr.h>, and need -lattr:
+  elif compile_prog "-DCONFIG_LIBATTR" "-lattr" ; then
     attr=yes
     LIBS="-lattr $LIBS"
+    libattr=yes
   else
     if test "$attr" = "yes" ; then
       feature_not_found "ATTR"
@@ -2785,6 +2801,7 @@ echo "Linux AIO support $linux_aio"
 echo "ATTR/XATTR support $attr"
 echo "Install blobs     $blobs"
 echo "KVM support       $kvm"
+echo "TCG interpreter   $tcg_interpreter"
 echo "KVM PIT support   $kvm_cap_pit"
 echo "KVM device assig. $kvm_cap_device_assignment"
 echo "fdt support       $fdt"
@@ -2834,6 +2851,15 @@ case "$cpu" in
   ;;
   armv4b|armv4l)
     ARCH=arm
+  ;;
+  *)
+    if test "$tcg_interpreter" = "yes" ; then
+        echo "Unsupported CPU = $cpu, will use TCG with TCI (experimental)"
+        ARCH=tci
+    else
+        echo "Unsupported CPU = $cpu, try --enable-tcg-interpreter"
+        exit 1
+    fi
   ;;
 esac
 echo "ARCH=$ARCH" >> $config_host_mak
@@ -3048,6 +3074,9 @@ fi
 if test "$attr" = "yes" ; then
   echo "CONFIG_ATTR=y" >> $config_host_mak
 fi
+if test "$libattr" = "yes" ; then
+  echo "CONFIG_LIBATTR=y" >> $config_host_mak
+fi
 if test "$linux" = "yes" ; then
   if test "$attr" = "yes" ; then
     echo "CONFIG_VIRTFS=y" >> $config_host_mak
@@ -3067,6 +3096,9 @@ if test "$fdt" = "yes" ; then
 fi
 if test "$signalfd" = "yes" ; then
   echo "CONFIG_SIGNALFD=y" >> $config_host_mak
+fi
+if test "$tcg_interpreter" = "yes" ; then
+  echo "CONFIG_TCG_INTERPRETER=y" >> $config_host_mak
 fi
 if test "$need_offsetof" = "yes" ; then
   echo "CONFIG_NEED_OFFSETOF=y" >> $config_host_mak
@@ -3553,7 +3585,9 @@ cflags=""
 includes=""
 ldflags=""
 
-if test "$ARCH" = "sparc64" ; then
+if test "$tcg_interpreter" = "yes"; then
+  includes="-I\$(SRC_PATH)/tcg/tci $includes"
+elif test "$ARCH" = "sparc64" ; then
   includes="-I\$(SRC_PATH)/tcg/sparc $includes"
 elif test "$ARCH" = "s390x" ; then
   includes="-I\$(SRC_PATH)/tcg/s390 $includes"
@@ -3630,6 +3664,10 @@ for i in $ARCH $TARGET_BASE_ARCH ; do
   ;;
   esac
 done
+if test "$tcg_interpreter" = "yes" ; then
+  echo "CONFIG_TCI_DIS=y"  >> $config_target_mak
+  echo "CONFIG_TCI_DIS=y"  >> $libdis_config_mak
+fi
 
 case "$ARCH" in
 alpha)
@@ -3676,7 +3714,12 @@ if test "$gprof" = "yes" ; then
   fi
 fi
 
-linker_script="-Wl,-T../config-host.ld -Wl,-T,\$(SRC_PATH)/\$(ARCH).ld"
+if test "$ARCH" = "tci"; then
+  linker_script=""
+else
+  linker_script="-Wl,-T../config-host.ld -Wl,-T,\$(SRC_PATH)/\$(ARCH).ld"
+fi
+
 if test "$target_linux_user" = "yes" -o "$target_bsd_user" = "yes" ; then
   case "$ARCH" in
   sparc)
