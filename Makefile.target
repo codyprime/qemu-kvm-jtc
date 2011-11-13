@@ -71,6 +71,7 @@ libobj-y = exec.o cpu-exec.o
 libobj-$(CONFIG_NO_CPU_EMULATION) += fake-exec.o
 libobj-$(CONFIG_CPU_EMULATION) += translate-all.o translate.o
 libobj-$(CONFIG_CPU_EMULATION) += tcg/tcg.o tcg/optimize.o
+libobj-$(CONFIG_TCG_INTERPRETER) += tci.o
 libobj-y += fpu/softfloat.o
 libobj-y += op_helper.o helper.o
 ifeq ($(TARGET_BASE_ARCH), i386)
@@ -90,6 +91,9 @@ libobj-$(TARGET_SPARC) += int32_helper.o
 libobj-$(TARGET_SPARC64) += int64_helper.o
 
 libobj-y += disas.o
+libobj-$(CONFIG_TCI_DIS) += tci-dis.o
+
+tci-dis.o: QEMU_CFLAGS += -I$(SRC_PATH)/tcg -I$(SRC_PATH)/tcg/tci
 
 $(libobj-y): $(GENERATED_HEADERS)
 
