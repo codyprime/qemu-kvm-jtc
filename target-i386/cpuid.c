@@ -107,33 +107,14 @@ void host_cpuid(uint32_t function, uint32_t count,
                 uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t *edx)
 {
 #if defined(CONFIG_KVM)
-    uint32_t vec[4];
-
-#ifdef __x86_64__
-    asm volatile("cpuid"
-                 : "=a"(vec[0]), "=b"(vec[1]),
-                   "=c"(vec[2]), "=d"(vec[3])
-                 : "0"(function), "c"(count) : "cc");
-#else
-    asm volatile("pusha \n\t"
-                 "cpuid \n\t"
-                 "mov %%eax, 0(%2) \n\t"
-                 "mov %%ebx, 4(%2) \n\t"
-                 "mov %%ecx, 8(%2) \n\t"
-                 "mov %%edx, 12(%2) \n\t"
-                 "popa"
-                 : : "a"(function), "c"(count), "S"(vec)
-                 : "memory", "cc");
-#endif
-
     if (eax)
-        *eax = vec[0];
+        *eax = kvm_arch_get_supported_cpuid(kvm_state, function, count, R_EAX);
     if (ebx)
-        *ebx = vec[1];
+        *ebx = kvm_arch_get_supported_cpuid(kvm_state, function, count, R_EBX);
     if (ecx)
-        *ecx = vec[2];
+        *ecx = kvm_arch_get_supported_cpuid(kvm_state, function, count, R_ECX);
     if (edx)
-        *edx = vec[3];
+        *edx = kvm_arch_get_supported_cpuid(kvm_state, function, count, R_EDX);
 #endif
 }
 
@@ -600,7 +581,7 @@ static int cpu_x86_find_by_name(x86_def_t *x86_cpu_def, const char *cpu_model)
     unsigned int i;
     x86_def_t *def;
 
-    char *s = strdup(cpu_model);
+    char *s = g_strdup(cpu_model);
     char *featurestr, *name = strtok(s, ",");
     /* Features to be added*/
     uint32_t plus_features = 0, plus_ext_features = 0;
@@ -613,9 +594,9 @@ static int cpu_x86_find_by_name(x86_def_t *x86_cpu_def, const char *cpu_model)
     uint32_t numvalue;
 
     for (def = x86_defs; def; def = def->next)
-        if (!strcmp(name, def->name))
+        if (name && !strcmp(name, def->name))
             break;
-    if (kvm_enabled() && strcmp(name, "host") == 0) {
+    if (kvm_enabled() && name && strcmp(name, "host") == 0) {
         cpu_x86_fill_host(x86_cpu_def);
     } else if (!def) {
         goto error;
@@ -746,11 +727,11 @@ static int cpu_x86_find_by_name(x86_def_t *x86_cpu_def, const char *cpu_model)
         if (check_features_against_host(x86_cpu_def) && enforce_cpuid)
             goto error;
     }
-    free(s);
+    g_free(s);
     return 0;
 
 error:
-    free(s);
+    g_free(s);
     return -1;
 }
 
@@ -969,7 +950,8 @@ static int cpudef_setfield(const char *name, const char *str, void *opaque)
     int err = 0;
 
     if (!strcmp(name, "name")) {
-        def->name = strdup(str);
+        g_free((void *)def->name);
+        def->name = g_strdup(str);
     } else if (!strcmp(name, "model_id")) {
         strncpy(def->model_id, str, sizeof (def->model_id));
     } else if (!strcmp(name, "level")) {
