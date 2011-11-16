@@ -434,8 +434,9 @@ static int assigned_dev_register_regions(PCIRegion *io_regions,
              * kernels return EIO.  New kernels only allow 1/2/4 byte reads
              * so should return EINVAL for a 3 byte read */
             ret = pread(pci_dev->v_addrs[i].region->resource_fd, &val, 3, 0);
-            if (ret == 3) {
-                fprintf(stderr, "I/O port resource supports 3 byte read?!\n");
+            if (ret >= 0) {
+                fprintf(stderr, "Unexpected return from I/O port read: %d\n",
+                        ret);
                 abort();
             } else if (errno != EINVAL) {
                 fprintf(stderr, "Using raw in/out ioport access (sysfs - %s)\n",
