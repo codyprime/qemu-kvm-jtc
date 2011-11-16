@@ -677,10 +677,23 @@ static void free_assigned_device(AssignedDevice *dev)
                 kvm_remove_ioport_region(region->u.r_baseport, region->r_size,
                                          dev->dev.qdev.hotplugged);
             }
+            memory_region_del_subregion(&region->container,
+                                        &region->real_iomem);
+            memory_region_destroy(&region->real_iomem);
+            memory_region_destroy(&region->container);
         } else if (pci_region->type & IORESOURCE_MEM) {
             if (region->u.r_virtbase) {
                 memory_region_del_subregion(&region->container,
                                             &region->real_iomem);
+
+                /* Remove MSI-X table subregion */
+                if (pci_region->base_addr <= dev->msix_table_addr &&
+                    pci_region->base_addr + pci_region->size >
+                    dev->msix_table_addr) {
+                    memory_region_del_subregion(&region->container,
+                                                &dev->mmio);
+                }
+
                 memory_region_destroy(&region->real_iomem);
                 memory_region_destroy(&region->container);
                 if (munmap(region->u.r_virtbase,
