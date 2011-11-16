@@ -1294,7 +1294,7 @@ static int assigned_device_pci_cap_init(PCIDevice *pci_dev)
         assigned_dev_setup_cap_read(dev, pos, size);
 
         type = pci_get_word(pci_dev->config + pos + PCI_EXP_FLAGS);
-        type = (type & PCI_EXP_FLAGS_TYPE) >> 8;
+        type = (type & PCI_EXP_FLAGS_TYPE) >> 4;
         if (type != PCI_EXP_TYPE_ENDPOINT &&
             type != PCI_EXP_TYPE_LEG_END && type != PCI_EXP_TYPE_RC_END) {
             fprintf(stderr,
