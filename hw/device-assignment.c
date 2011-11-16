@@ -1312,7 +1312,7 @@ static int assigned_device_pci_cap_init(PCIDevice *pci_dev)
         pci_set_long(pci_dev->config + pos + PCI_EXP_DEVCAP, devcap);
 
         /* device control: clear all error reporting enable bits, leaving
-         *                 leaving only a few host values.  Note, these are
+         *                 only a few host values.  Note, these are
          *                 all writable, but not passed to hw.
          */
         devctl = pci_get_word(pci_dev->config + pos + PCI_EXP_DEVCTL);
@@ -1331,10 +1331,6 @@ static int assigned_device_pci_cap_init(PCIDevice *pci_dev)
                    PCI_EXP_LNKCAP_ASPMS | PCI_EXP_LNKCAP_L0SEL |
                    PCI_EXP_LNKCAP_L1EL);
         pci_set_long(pci_dev->config + pos + PCI_EXP_LNKCAP, lnkcap);
-        pci_set_word(pci_dev->wmask + pos + PCI_EXP_LNKCAP,
-                     PCI_EXP_LNKCTL_ASPMC | PCI_EXP_LNKCTL_RCB |
-                     PCI_EXP_LNKCTL_CCC | PCI_EXP_LNKCTL_ES |
-                     PCI_EXP_LNKCTL_CLKREQ_EN | PCI_EXP_LNKCTL_HAWD);
 
         /* Link control, pass existing read-only copy.  Should be writable? */
 
