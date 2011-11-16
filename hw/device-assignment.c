@@ -65,100 +65,76 @@ static void assigned_dev_load_option_rom(AssignedDevice *dev);
 
 static void assigned_dev_unregister_msix_mmio(AssignedDevice *dev);
 
-static uint32_t assigned_dev_ioport_rw(AssignedDevRegion *dev_region,
-                                       uint32_t addr, int len, uint32_t *val)
+static uint64_t assigned_dev_ioport_rw(AssignedDevRegion *dev_region,
+                                       target_phys_addr_t addr, int size,
+                                       uint64_t *data)
 {
-    uint32_t ret = 0;
-    uint32_t offset = addr;
+    uint64_t val = 0;
     int fd = dev_region->region->resource_fd;
 
     if (fd >= 0) {
-        if (val) {
-            DEBUG("pwrite val=%x, len=%d, e_phys=%x, offset=%x\n",
-                  *val, len, addr, offset);
-            if (pwrite(fd, val, len, offset) != len) {
+        if (data) {
+            DEBUG("pwrite data=%x, size=%d, e_phys=%x, addr=%x\n",
+                  *data, size, addr, addr);
+            if (pwrite(fd, data, size, addr) != size) {
                 fprintf(stderr, "%s - pwrite failed %s\n",
                         __func__, strerror(errno));
             }
         } else {
-            if (pread(fd, &ret, len, offset) != len) {
+            if (pread(fd, &val, size, addr) != size) {
                 fprintf(stderr, "%s - pread failed %s\n",
                         __func__, strerror(errno));
-                ret = (1UL << (len * 8)) - 1;
+                val = (1UL << (size * 8)) - 1;
             }
-            DEBUG("pread ret=%x, len=%d, e_phys=%x, offset=%x\n",
-                  ret, len, addr, offset);
+            DEBUG("pread val=%x, size=%d, e_phys=%x, addr=%x\n",
+                  val, size, addr, addr);
         }
     } else {
-        uint32_t port = offset + dev_region->u.r_baseport;
+        uint32_t port = addr + dev_region->u.r_baseport;
 
-        if (val) {
-            DEBUG("out val=%x, len=%d, e_phys=%x, host=%x\n",
-                  *val, len, addr, port);
-            switch (len) {
+        if (data) {
+            DEBUG("out data=%x, size=%d, e_phys=%x, host=%x\n",
+                  *data, size, addr, port);
+            switch (size) {
                 case 1:
-                    outb(*val, port);
+                    outb(*data, port);
                     break;
                 case 2:
-                    outw(*val, port);
+                    outw(*data, port);
                     break;
                 case 4:
-                    outl(*val, port);
+                    outl(*data, port);
                     break;
             }
         } else {
-            switch (len) {
+            switch (size) {
                 case 1:
-                    ret = inb(port);
+                    val = inb(port);
                     break;
                 case 2:
-                    ret = inw(port);
+                    val = inw(port);
                     break;
                 case 4:
-                    ret = inl(port);
+                    val = inl(port);
                     break;
             }
-            DEBUG("in val=%x, len=%d, e_phys=%x, host=%x\n",
-                  ret, len, addr, port);
+            DEBUG("in data=%x, size=%d, e_phys=%x, host=%x\n",
+                  val, size, addr, port);
         }
     }
-    return ret;
+    return val;
 }
 
-static void assigned_dev_ioport_writeb(void *opaque, uint32_t addr,
-                                       uint32_t value)
+static void assigned_dev_ioport_write(void *opaque, target_phys_addr_t addr,
+                                      uint64_t data, unsigned size)
 {
-    assigned_dev_ioport_rw(opaque, addr, 1, &value);
-    return;
+    assigned_dev_ioport_rw(opaque, addr, size, &data);
 }
 
-static void assigned_dev_ioport_writew(void *opaque, uint32_t addr,
-                                       uint32_t value)
+static uint64_t assigned_dev_ioport_read(void *opaque,
+                                         target_phys_addr_t addr, unsigned size)
 {
-    assigned_dev_ioport_rw(opaque, addr, 2, &value);
-    return;
-}
-
-static void assigned_dev_ioport_writel(void *opaque, uint32_t addr,
-                       uint32_t value)
-{
-    assigned_dev_ioport_rw(opaque, addr, 4, &value);
-    return;
-}
-
-static uint32_t assigned_dev_ioport_readb(void *opaque, uint32_t addr)
-{
-    return assigned_dev_ioport_rw(opaque, addr, 1, NULL);
-}
-
-static uint32_t assigned_dev_ioport_readw(void *opaque, uint32_t addr)
-{
-    return assigned_dev_ioport_rw(opaque, addr, 2, NULL);
-}
-
-static uint32_t assigned_dev_ioport_readl(void *opaque, uint32_t addr)
-{
-    return assigned_dev_ioport_rw(opaque, addr, 4, NULL);
+    return assigned_dev_ioport_rw(opaque, addr, size, NULL);
 }
 
 static uint32_t slow_bar_readb(void *opaque, target_phys_addr_t addr)
@@ -258,18 +234,9 @@ static void assigned_dev_iomem_setup(PCIDevice *pci_dev, int region_num,
     }
 }
 
-static const MemoryRegionPortio assigned_dev_old_portio[] = {
-    { 0x10000, 1, .read = assigned_dev_ioport_readb, },
-    { 0x10000, 2, .read = assigned_dev_ioport_readw, },
-    { 0x10000, 4, .read = assigned_dev_ioport_readl, },
-    { 0x10000, 1, .write = assigned_dev_ioport_writeb, },
-    { 0x10000, 2, .write = assigned_dev_ioport_writew, },
-    { 0x10000, 4, .write = assigned_dev_ioport_writel, },
-    PORTIO_END_OF_LIST()
-};
-
 static const MemoryRegionOps assigned_dev_ioport_ops = {
-    .old_portio = assigned_dev_old_portio,
+    .read = assigned_dev_ioport_read,
+    .write = assigned_dev_ioport_write,
     .endianness = DEVICE_NATIVE_ENDIAN,
 };
 
