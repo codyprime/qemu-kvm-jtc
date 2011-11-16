@@ -1240,8 +1240,8 @@ static int assigned_device_pci_cap_init(PCIDevice *pci_dev)
 
     if ((pos = pci_find_cap_offset(pci_dev, PCI_CAP_ID_EXP, 0))) {
         uint8_t version, size = 0;
-        uint16_t type, devctl, lnkcap, lnksta;
-        uint32_t devcap;
+        uint16_t type, devctl, lnksta;
+        uint32_t devcap, lnkcap;
 
         version = pci_get_byte(pci_dev->config + pos + PCI_EXP_FLAGS);
         version &= PCI_EXP_FLAGS_VERS;
@@ -1326,11 +1326,11 @@ static int assigned_device_pci_cap_init(PCIDevice *pci_dev)
         pci_set_word(pci_dev->config + pos + PCI_EXP_DEVSTA, 0);
 
         /* Link capabilities, expose links and latencues, clear reporting */
-        lnkcap = pci_get_word(pci_dev->config + pos + PCI_EXP_LNKCAP);
+        lnkcap = pci_get_long(pci_dev->config + pos + PCI_EXP_LNKCAP);
         lnkcap &= (PCI_EXP_LNKCAP_SLS | PCI_EXP_LNKCAP_MLW |
                    PCI_EXP_LNKCAP_ASPMS | PCI_EXP_LNKCAP_L0SEL |
                    PCI_EXP_LNKCAP_L1EL);
-        pci_set_word(pci_dev->config + pos + PCI_EXP_LNKCAP, lnkcap);
+        pci_set_long(pci_dev->config + pos + PCI_EXP_LNKCAP, lnkcap);
         pci_set_word(pci_dev->wmask + pos + PCI_EXP_LNKCAP,
                      PCI_EXP_LNKCTL_ASPMC | PCI_EXP_LNKCTL_RCB |
                      PCI_EXP_LNKCTL_CCC | PCI_EXP_LNKCTL_ES |
