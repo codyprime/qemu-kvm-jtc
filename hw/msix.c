@@ -231,6 +231,12 @@ static void msix_handle_mask_update(PCIDevice *dev, int vector, bool was_masked)
         return;
     }
 
+    if (dev->msix_mask_notifier) {
+        int ret;
+        ret = dev->msix_mask_notifier(dev, vector, is_masked);
+        assert(ret >= 0);
+    }
+
     if (!is_masked && msix_is_pending(dev, vector)) {
         msix_clr_pending(dev, vector);
         msix_notify(dev, vector);
@@ -291,11 +297,6 @@ static void msix_mmio_write(void *opaque, target_phys_addr_t addr,
     pci_set_long(dev->msix_table_page + offset, val);
     if (kvm_enabled() && kvm_irqchip_in_kernel()) {
         kvm_msix_update(dev, vector, was_masked, msix_is_masked(dev, vector));
-    }
-    if (was_masked != msix_is_masked(dev, vector) && dev->msix_mask_notifier) {
-        int r = dev->msix_mask_notifier(dev, vector,
-					msix_is_masked(dev, vector));
-        assert(r >= 0);
     }
     msix_handle_mask_update(dev, vector, was_masked);
 }
