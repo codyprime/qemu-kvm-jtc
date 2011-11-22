@@ -152,6 +152,7 @@ static int instruction_is_ok(CPUState *env, uint64_t rip, int is_write)
         if (modrm_reg(b2) != 6 || !is_abs_modrm(b2))
             return 0;
         addr_offset = 2;
+        break;
     default:
 	return 0;
     }
