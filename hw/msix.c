@@ -174,6 +174,7 @@ static int msix_add_config(struct PCIDevice *pdev, unsigned short nentries,
     /* Make flags bit writable. */
     pdev->wmask[config_offset + MSIX_CONTROL_OFFSET] |= MSIX_ENABLE_MASK |
 	    MSIX_MASKALL_MASK;
+    pdev->msix_function_masked = true;
     return 0;
 }
 
@@ -212,16 +213,11 @@ static void msix_clr_pending(PCIDevice *dev, int vector)
     *msix_pending_byte(dev, vector) &= ~msix_pending_mask(vector);
 }
 
-static int msix_function_masked(PCIDevice *dev)
-{
-    return dev->config[dev->msix_cap + MSIX_CONTROL_OFFSET] & MSIX_MASKALL_MASK;
-}
-
 static int msix_is_masked(PCIDevice *dev, int vector)
 {
     unsigned offset =
         vector * PCI_MSIX_ENTRY_SIZE + PCI_MSIX_ENTRY_VECTOR_CTRL;
-    return msix_function_masked(dev) ||
+    return dev->msix_function_masked ||
 	   dev->msix_table_page[offset] & PCI_MSIX_ENTRY_CTRL_MASKBIT;
 }
 
@@ -233,16 +229,26 @@ static void msix_handle_mask_update(PCIDevice *dev, int vector)
     }
 }
 
+static void msix_update_function_masked(PCIDevice *dev)
+{
+    dev->msix_function_masked = !msix_enabled(dev) ||
+        (dev->config[dev->msix_cap + MSIX_CONTROL_OFFSET] & MSIX_MASKALL_MASK);
+}
+
 /* Handle MSI-X capability config write. */
 void msix_write_config(PCIDevice *dev, uint32_t addr,
                        uint32_t val, int len)
 {
     unsigned enable_pos = dev->msix_cap + MSIX_CONTROL_OFFSET;
     int vector;
+    bool was_masked;
 
     if (!range_covers_byte(addr, len, enable_pos)) {
         return;
     }
+
+    was_masked = dev->msix_function_masked;
+    msix_update_function_masked(dev);
 
     if (!msix_enabled(dev)) {
         return;
@@ -250,7 +256,7 @@ void msix_write_config(PCIDevice *dev, uint32_t addr,
 
     pci_device_deassert_intx(dev);
 
-    if (msix_function_masked(dev)) {
+    if (dev->msix_function_masked == was_masked) {
         return;
     }
 
@@ -266,6 +272,12 @@ static void msix_mmio_write(void *opaque, target_phys_addr_t addr,
     unsigned int offset = addr & (MSIX_PAGE_SIZE - 1) & ~0x3;
     int vector = offset / PCI_MSIX_ENTRY_SIZE;
     int was_masked = msix_is_masked(dev, vector);
+
+    /* MSI-X page includes a read-only PBA and a writeable Vector Control. */
+    if (vector >= dev->msix_entries_nr) {
+        return;
+    }
+
     pci_set_long(dev->msix_table_page + offset, val);
     if (kvm_enabled() && kvm_irqchip_in_kernel()) {
         kvm_msix_update(dev, vector, was_masked, msix_is_masked(dev, vector));
@@ -431,6 +443,7 @@ void msix_load(PCIDevice *dev, QEMUFile *f)
     msix_free_irq_entries(dev);
     qemu_get_buffer(f, dev->msix_table_page, n * PCI_MSIX_ENTRY_SIZE);
     qemu_get_buffer(f, dev->msix_table_page + MSIX_PAGE_PENDING, (n + 7) / 8);
+    msix_update_function_masked(dev);
 }
 
 /* Does device support MSI-X? */
