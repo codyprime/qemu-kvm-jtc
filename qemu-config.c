@@ -110,6 +110,10 @@ static QemuOptsList qemu_drive_opts = {
             .type = QEMU_OPT_NUMBER,
             .help = "limit write bytes per second",
         },{
+            .name = "copy-on-read",
+            .type = QEMU_OPT_BOOL,
+            .help = "copy read data from backing file into image file",
+        },{
             .name = "boot",
             .type = QEMU_OPT_BOOL,
             .help = "(deprecated, ignored)",

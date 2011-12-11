@@ -39,6 +39,7 @@
 #define BLOCK_IO_LIMIT_TOTAL    2
 
 #define BLOCK_IO_SLICE_TIME     100000000
+#define NANOSECONDS_PER_SECOND  1000000000.0
 
 #define BLOCK_OPT_SIZE          "size"
 #define BLOCK_OPT_ENCRYPT       "encryption"
@@ -49,6 +50,8 @@
 #define BLOCK_OPT_TABLE_SIZE    "table_size"
 #define BLOCK_OPT_PREALLOC      "preallocation"
 #define BLOCK_OPT_SUBFMT        "subformat"
+
+typedef struct BdrvTrackedRequest BdrvTrackedRequest;
 
 typedef struct AIOPool {
     void (*cancel)(BlockDriverAIOCB *acb);
@@ -79,8 +82,6 @@ struct BlockDriver {
                       const uint8_t *buf, int nb_sectors);
     void (*bdrv_close)(BlockDriverState *bs);
     int (*bdrv_create)(const char *filename, QEMUOptionParameter *options);
-    int (*bdrv_is_allocated)(BlockDriverState *bs, int64_t sector_num,
-                             int nb_sectors, int *pnum);
     int (*bdrv_set_key)(BlockDriverState *bs, const char *key);
     int (*bdrv_make_empty)(BlockDriverState *bs);
     /* aio */
@@ -102,6 +103,8 @@ struct BlockDriver {
         int64_t sector_num, int nb_sectors, QEMUIOVector *qiov);
     int coroutine_fn (*bdrv_co_discard)(BlockDriverState *bs,
         int64_t sector_num, int nb_sectors);
+    int coroutine_fn (*bdrv_co_is_allocated)(BlockDriverState *bs,
+        int64_t sector_num, int nb_sectors, int *pnum);
 
     /*
      * Invalidate any cached meta-data.
@@ -195,6 +198,8 @@ struct BlockDriverState {
     int encrypted; /* if true, the media is encrypted */
     int valid_key; /* if true, a valid encryption key has been set */
     int sg;        /* if true, the device is a /dev/sg* */
+    int copy_on_read; /* if true, copy read backing sectors into image
+                         note this is a reference count */
 
     BlockDriver *drv; /* NULL means no media */
     void *opaque;
@@ -254,6 +259,8 @@ struct BlockDriverState {
     int in_use; /* users other than guest access, eg. block migration */
     QTAILQ_ENTRY(BlockDriverState) list;
     void *private;
+
+    QLIST_HEAD(, BdrvTrackedRequest) tracked_requests;
 };
 
 struct BlockDriverAIOCB {

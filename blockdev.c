@@ -257,6 +257,7 @@ DriveInfo *drive_init(QemuOpts *opts, int default_to_scsi)
     DriveInfo *dinfo;
     BlockIOLimit io_limits;
     int snapshot = 0;
+    bool copy_on_read;
     int ret;
 
     translation = BIOS_ATA_TRANSLATION_AUTO;
@@ -273,6 +274,7 @@ DriveInfo *drive_init(QemuOpts *opts, int default_to_scsi)
 
     snapshot = qemu_opt_get_bool(opts, "snapshot", 0);
     ro = qemu_opt_get_bool(opts, "readonly", 0);
+    copy_on_read = qemu_opt_get_bool(opts, "copy-on-read", false);
 
     file = qemu_opt_get(opts, "file");
     serial = qemu_opt_get(opts, "serial");
@@ -552,6 +554,10 @@ DriveInfo *drive_init(QemuOpts *opts, int default_to_scsi)
         bdrv_flags |= (BDRV_O_SNAPSHOT|BDRV_O_CACHE_WB|BDRV_O_NO_FLUSH);
     }
 
+    if (copy_on_read) {
+        bdrv_flags |= BDRV_O_COPY_ON_READ;
+    }
+
     if (media == MEDIA_CDROM) {
         /* CDROM is fine for any interface, don't check.  */
         ro = 1;
@@ -763,6 +769,65 @@ int do_change_block(Monitor *mon, const char *device,
         return -1;
     }
     return monitor_read_bdrv_key_start(mon, bs, NULL, NULL);
+}
+
+/* throttling disk I/O limits */
+int do_block_set_io_throttle(Monitor *mon,
+                       const QDict *qdict, QObject **ret_data)
+{
+    BlockIOLimit io_limits;
+    const char *devname = qdict_get_str(qdict, "device");
+    BlockDriverState *bs;
+
+    io_limits.bps[BLOCK_IO_LIMIT_TOTAL]
+                        = qdict_get_try_int(qdict, "bps", -1);
+    io_limits.bps[BLOCK_IO_LIMIT_READ]
+                        = qdict_get_try_int(qdict, "bps_rd", -1);
+    io_limits.bps[BLOCK_IO_LIMIT_WRITE]
+                        = qdict_get_try_int(qdict, "bps_wr", -1);
+    io_limits.iops[BLOCK_IO_LIMIT_TOTAL]
+                        = qdict_get_try_int(qdict, "iops", -1);
+    io_limits.iops[BLOCK_IO_LIMIT_READ]
+                        = qdict_get_try_int(qdict, "iops_rd", -1);
+    io_limits.iops[BLOCK_IO_LIMIT_WRITE]
+                        = qdict_get_try_int(qdict, "iops_wr", -1);
+
+    bs = bdrv_find(devname);
+    if (!bs) {
+        qerror_report(QERR_DEVICE_NOT_FOUND, devname);
+        return -1;
+    }
+
+    if ((io_limits.bps[BLOCK_IO_LIMIT_TOTAL] == -1)
+        || (io_limits.bps[BLOCK_IO_LIMIT_READ] == -1)
+        || (io_limits.bps[BLOCK_IO_LIMIT_WRITE] == -1)
+        || (io_limits.iops[BLOCK_IO_LIMIT_TOTAL] == -1)
+        || (io_limits.iops[BLOCK_IO_LIMIT_READ] == -1)
+        || (io_limits.iops[BLOCK_IO_LIMIT_WRITE] == -1)) {
+        qerror_report(QERR_MISSING_PARAMETER,
+                      "bps/bps_rd/bps_wr/iops/iops_rd/iops_wr");
+        return -1;
+    }
+
+    if (!do_check_io_limits(&io_limits)) {
+        qerror_report(QERR_INVALID_PARAMETER_COMBINATION);
+        return -1;
+    }
+
+    bs->io_limits = io_limits;
+    bs->slice_time = BLOCK_IO_SLICE_TIME;
+
+    if (!bs->io_limits_enabled && bdrv_io_limits_enabled(bs)) {
+        bdrv_io_limits_enable(bs);
+    } else if (bs->io_limits_enabled && !bdrv_io_limits_enabled(bs)) {
+        bdrv_io_limits_disable(bs);
+    } else {
+        if (bs->block_timer) {
+            qemu_mod_timer(bs->block_timer, qemu_get_clock_ns(vm_clock));
+        }
+    }
+
+    return 0;
 }
 
 int do_drive_del(Monitor *mon, const QDict *qdict, QObject **ret_data)
