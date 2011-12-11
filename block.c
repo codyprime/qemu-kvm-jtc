@@ -846,6 +846,25 @@ void bdrv_close_all(void)
     }
 }
 
+/*
+ * Wait for pending requests to complete across all BlockDriverStates
+ *
+ * This function does not flush data to disk, use bdrv_flush_all() for that
+ * after calling this function.
+ */
+void bdrv_drain_all(void)
+{
+    BlockDriverState *bs;
+
+    qemu_aio_flush();
+
+    /* If requests are still pending there is a bug somewhere */
+    QTAILQ_FOREACH(bs, &bdrv_states, list) {
+        assert(QLIST_EMPTY(&bs->tracked_requests));
+        assert(qemu_co_queue_empty(&bs->throttled_reqs));
+    }
+}
+
 /* make a BlockDriverState anonymous by removing from bdrv_state list.
    Also, NULL terminate the device_name to prevent double remove */
 void bdrv_make_anon(BlockDriverState *bs)
@@ -1099,6 +1118,7 @@ struct BdrvTrackedRequest {
     int nb_sectors;
     bool is_write;
     QLIST_ENTRY(BdrvTrackedRequest) list;
+    Coroutine *co; /* owner, used for deadlock detection */
     CoQueue wait_queue; /* coroutines blocked on this request */
 };
 
@@ -1126,6 +1146,7 @@ static void tracked_request_begin(BdrvTrackedRequest *req,
         .sector_num = sector_num,
         .nb_sectors = nb_sectors,
         .is_write = is_write,
+        .co = qemu_coroutine_self(),
     };
 
     qemu_co_queue_init(&req->wait_queue);
@@ -1189,6 +1210,12 @@ static void coroutine_fn wait_for_overlapping_requests(BlockDriverState *bs,
         QLIST_FOREACH(req, &bs->tracked_requests, list) {
             if (tracked_request_overlaps(req, cluster_sector_num,
                                          cluster_nb_sectors)) {
+                /* Hitting this means there was a reentrant request, for
+                 * example, a block driver issuing nested requests.  This must
+                 * never happen since it means deadlock.
+                 */
+                assert(qemu_coroutine_self() != req->co);
+
                 qemu_co_queue_wait(&req->wait_queue);
                 retry = true;
                 break;
@@ -2117,23 +2144,33 @@ typedef struct BdrvCoIsAllocatedData {
  * not implementing the functionality are assumed to not support backing files,
  * hence all their sectors are reported as allocated.
  *
+ * If 'sector_num' is beyond the end of the disk image the return value is 0
+ * and 'pnum' is set to 0.
+ *
  * 'pnum' is set to the number of sectors (including and immediately following
  * the specified sector) that are known to be in the same
  * allocated/unallocated state.
  *
- * 'nb_sectors' is the max value 'pnum' should be set to.
+ * 'nb_sectors' is the max value 'pnum' should be set to.  If nb_sectors goes
+ * beyond the end of the disk image it will be clamped.
  */
 int coroutine_fn bdrv_co_is_allocated(BlockDriverState *bs, int64_t sector_num,
                                       int nb_sectors, int *pnum)
 {
+    int64_t n;
+
+    if (sector_num >= bs->total_sectors) {
+        *pnum = 0;
+        return 0;
+    }
+
+    n = bs->total_sectors - sector_num;
+    if (n < nb_sectors) {
+        nb_sectors = n;
+    }
+
     if (!bs->drv->bdrv_co_is_allocated) {
-        int64_t n;
-        if (sector_num >= bs->total_sectors) {
-            *pnum = 0;
-            return 0;
-        }
-        n = bs->total_sectors - sector_num;
-        *pnum = (n < nb_sectors) ? (n) : (nb_sectors);
+        *pnum = nb_sectors;
         return 1;
     }
 
