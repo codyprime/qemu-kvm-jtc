@@ -697,8 +697,6 @@ static int kvm_kernel_pic_load_from_user(PicState *s)
     return 0;
 }
 
-extern void apic_set_irq_delivered(void);
-
 static void kvm_i8259_set_irq(void *opaque, int irq, int level)
 {
     int pic_ret;
