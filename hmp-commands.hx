@@ -57,8 +57,7 @@ ETEXI
         .args_type  = "device:B,size:o",
         .params     = "device size",
         .help       = "resize a block image",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_block_resize,
+        .mhandler.cmd = hmp_block_resize,
     },
 
 STEXI
@@ -772,8 +771,7 @@ ETEXI
         .args_type  = "",
         .params     = "",
         .help       = "cancel the current VM migration",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_migrate_cancel,
+        .mhandler.cmd = hmp_migrate_cancel,
     },
 
 STEXI
@@ -788,8 +786,7 @@ ETEXI
         .params     = "value",
         .help       = "set maximum speed (in bytes) for migrations. "
 	"Defaults to MB if no size suffix is specified, ie. B/K/M/G/T",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_migrate_set_speed,
+        .mhandler.cmd = hmp_migrate_set_speed,
     },
 
 STEXI
@@ -803,8 +800,7 @@ ETEXI
         .args_type  = "value:T",
         .params     = "value",
         .help       = "set maximum tolerated downtime (in seconds) for migrations",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_migrate_set_downtime,
+        .mhandler.cmd = hmp_migrate_set_downtime,
     },
 
 STEXI
@@ -841,7 +837,7 @@ ETEXI
                       "If format is specified, the snapshot file will\n\t\t\t"
                       "be created in that format. Otherwise the\n\t\t\t"
                       "snapshot will be internal! (currently unsupported)",
-        .mhandler.cmd_new = do_snapshot_blkdev,
+        .mhandler.cmd = hmp_snapshot_blkdev,
     },
 
 STEXI
@@ -919,7 +915,7 @@ ETEXI
                       "<tlb header> = 32bit x 4\n\t\t\t"
                       "<tlb header prefix> = 32bit x 4",
         .user_print  = pcie_aer_inject_error_print,
-        .mhandler.cmd_new = do_pcie_aer_inejct_error,
+        .mhandler.cmd_new = do_pcie_aer_inject_error,
     },
 
 STEXI
@@ -1022,9 +1018,7 @@ ETEXI
         .args_type  = "value:M",
         .params     = "target",
         .help       = "request VM to change its memory allocation (in MB)",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_async = do_balloon,
-        .flags      = MONITOR_CMD_ASYNC,
+        .mhandler.cmd = hmp_balloon,
     },
 
 STEXI
@@ -1038,8 +1032,7 @@ ETEXI
         .args_type  = "name:s,up:b",
         .params     = "name on|off",
         .help       = "change the link status of a network adapter",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_set_link,
+        .mhandler.cmd = hmp_set_link,
     },
 
 STEXI
@@ -1199,8 +1192,7 @@ ETEXI
         .args_type  = "device:B,password:s",
         .params     = "block_passwd device password",
         .help       = "set the password of encrypted block devices",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_block_set_passwd,
+        .mhandler.cmd = hmp_block_passwd,
     },
 
 STEXI

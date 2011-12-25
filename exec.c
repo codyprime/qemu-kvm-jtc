@@ -499,9 +499,7 @@ static void code_gen_alloc(unsigned long tb_size)
         if (code_gen_buffer_size > (512 * 1024 * 1024))
             code_gen_buffer_size = (512 * 1024 * 1024);
 #elif defined(__arm__)
-        /* Map the buffer below 32M, so we can use direct calls and branches */
-        flags |= MAP_FIXED;
-        start = (void *) 0x01000000UL;
+        /* Keep the buffer no bigger than 16GB to branch between blocks */
         if (code_gen_buffer_size > 16 * 1024 * 1024)
             code_gen_buffer_size = 16 * 1024 * 1024;
 #elif defined(__s390x__)
@@ -1605,8 +1603,10 @@ void cpu_set_log(int log_flags)
             static char logfile_buf[4096];
             setvbuf(logfile, logfile_buf, _IOLBF, sizeof(logfile_buf));
         }
-#elif !defined(_WIN32)
-        /* Win32 doesn't support line-buffering and requires size >= 2 */
+#elif defined(_WIN32)
+        /* Win32 doesn't support line-buffering, so use unbuffered output. */
+        setvbuf(logfile, NULL, _IONBF, 0);
+#else
         setvbuf(logfile, NULL, _IOLBF, 0);
 #endif
         log_append = 1;

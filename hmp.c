@@ -601,3 +601,81 @@ void hmp_inject_nmi(Monitor *mon, const QDict *qdict)
     qmp_inject_nmi(&errp);
     hmp_handle_error(mon, &errp);
 }
+
+void hmp_set_link(Monitor *mon, const QDict *qdict)
+{
+    const char *name = qdict_get_str(qdict, "name");
+    int up = qdict_get_bool(qdict, "up");
+    Error *errp = NULL;
+
+    qmp_set_link(name, up, &errp);
+    hmp_handle_error(mon, &errp);
+}
+
+void hmp_block_passwd(Monitor *mon, const QDict *qdict)
+{
+    const char *device = qdict_get_str(qdict, "device");
+    const char *password = qdict_get_str(qdict, "password");
+    Error *errp = NULL;
+
+    qmp_block_passwd(device, password, &errp);
+    hmp_handle_error(mon, &errp);
+}
+
+void hmp_balloon(Monitor *mon, const QDict *qdict)
+{
+    int64_t value = qdict_get_int(qdict, "value");
+    Error *errp = NULL;
+
+    qmp_balloon(value, &errp);
+    if (error_is_set(&errp)) {
+        monitor_printf(mon, "balloon: %s\n", error_get_pretty(errp));
+        error_free(errp);
+    }
+}
+
+void hmp_block_resize(Monitor *mon, const QDict *qdict)
+{
+    const char *device = qdict_get_str(qdict, "device");
+    int64_t size = qdict_get_int(qdict, "size");
+    Error *errp = NULL;
+
+    qmp_block_resize(device, size, &errp);
+    hmp_handle_error(mon, &errp);
+}
+
+void hmp_snapshot_blkdev(Monitor *mon, const QDict *qdict)
+{
+    const char *device = qdict_get_str(qdict, "device");
+    const char *filename = qdict_get_try_str(qdict, "snapshot-file");
+    const char *format = qdict_get_try_str(qdict, "format");
+    Error *errp = NULL;
+
+    if (!filename) {
+        /* In the future, if 'snapshot-file' is not specified, the snapshot
+           will be taken internally. Today it's actually required. */
+        error_set(&errp, QERR_MISSING_PARAMETER, "snapshot-file");
+        hmp_handle_error(mon, &errp);
+        return;
+    }
+
+    qmp_blockdev_snapshot_sync(device, filename, !!format, format, &errp);
+    hmp_handle_error(mon, &errp);
+}
+
+void hmp_migrate_cancel(Monitor *mon, const QDict *qdict)
+{
+    qmp_migrate_cancel(NULL);
+}
+
+void hmp_migrate_set_downtime(Monitor *mon, const QDict *qdict)
+{
+    double value = qdict_get_double(qdict, "value");
+    qmp_migrate_set_downtime(value, NULL);
+}
+
+void hmp_migrate_set_speed(Monitor *mon, const QDict *qdict)
+{
+    int64_t value = qdict_get_int(qdict, "value");
+    qmp_migrate_set_speed(value, NULL);
+}
