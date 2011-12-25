@@ -177,7 +177,7 @@ extern int no_hpet;
 
 /* pcspk.c */
 void pcspk_init(ISADevice *pit);
-int pcspk_audio_init(ISABus *bus, qemu_irq *pic);
+int pcspk_audio_init(ISABus *bus);
 
 /* piix_pci.c */
 /* config space register for IRQ routing */
@@ -187,7 +187,7 @@ struct PCII440FXState;
 typedef struct PCII440FXState PCII440FXState;
 
 PCIBus *i440fx_init(PCII440FXState **pi440fx_state, int *piix_devfn,
-                    qemu_irq *pic,
+                    ISABus **isa_bus, qemu_irq *pic,
                     MemoryRegion *address_space_mem,
                     MemoryRegion *address_space_io,
                     ram_addr_t ram_size,
@@ -200,7 +200,7 @@ PCIBus *i440fx_init(PCII440FXState **pi440fx_state, int *piix_devfn,
 
 /* piix4.c */
 extern PCIDevice *piix4_dev;
-int piix4_init(PCIBus *bus, int devfn);
+int piix4_init(PCIBus *bus, ISABus **isa_bus, int devfn);
 
 int piix_get_irq(int pin);
 
