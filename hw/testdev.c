@@ -5,6 +5,7 @@
 
 struct testdev {
     ISADevice dev;
+    MemoryRegion iomem;
     CharDriverState *chr;
 };
 
@@ -87,22 +88,17 @@ static void test_iomem_writel(void *opaque, target_phys_addr_t addr, uint32_t va
     *(uint32_t*)(iomem_buf + addr) = val;
 }
 
-static CPUReadMemoryFunc * const test_iomem_read[3] = {
-    test_iomem_readb,
-    test_iomem_readw,
-    test_iomem_readl,
-};
-
-static CPUWriteMemoryFunc * const test_iomem_write[3] = {
-    test_iomem_writeb,
-    test_iomem_writew,
-    test_iomem_writel,
+static const MemoryRegionOps test_iomem_ops = {
+    .old_mmio = {
+        .read = { test_iomem_readb, test_iomem_readw, test_iomem_readl, },
+        .write = { test_iomem_writeb, test_iomem_writew, test_iomem_writel, },
+    },
+    .endianness = DEVICE_LITTLE_ENDIAN,
 };
 
 static int init_test_device(ISADevice *isa)
 {
     struct testdev *dev = DO_UPCAST(struct testdev, dev, isa);
-    int iomem;
 
     register_ioport_write(0xf1, 1, 1, test_device_serial_write, dev);
     register_ioport_write(0xf4, 1, 4, test_device_exit, dev);
@@ -116,9 +112,10 @@ static int init_test_device(ISADevice *isa)
     register_ioport_write(0xe4, 1, 4, test_device_flush_page, dev);
     register_ioport_write(0x2000, 24, 1, test_device_irq_line, NULL);
     iomem_buf = g_malloc0(0x10000);
-    iomem = cpu_register_io_memory(test_iomem_read, test_iomem_write, NULL,
-                                   DEVICE_NATIVE_ENDIAN);
-    cpu_register_physical_memory(0xff000000, 0x10000, iomem);
+    memory_region_init_io(&dev->iomem, &test_iomem_ops, NULL,
+                          "testdev", 0x10000);
+    memory_region_add_subregion(isa_address_space(&dev->dev), 0xff000000,
+                                                  &dev->iomem);
     return 0;
 }
 
