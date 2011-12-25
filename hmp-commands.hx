@@ -304,8 +304,7 @@ ETEXI
         .args_type  = "",
         .params     = "",
         .help       = "resume emulation",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_cont,
+        .mhandler.cmd = hmp_cont,
     },
 
 STEXI
@@ -689,8 +688,7 @@ ETEXI
         .args_type  = "val:l,size:i,filename:s",
         .params     = "addr size file",
         .help       = "save to disk virtual memory dump starting at 'addr' of size 'size'",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_memory_save,
+        .mhandler.cmd = hmp_memsave,
     },
 
 STEXI
@@ -704,8 +702,7 @@ ETEXI
         .args_type  = "val:l,size:i,filename:s",
         .params     = "addr size file",
         .help       = "save to disk physical memory dump starting at 'addr' of size 'size'",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_physical_memory_save,
+        .mhandler.cmd = hmp_pmemsave,
     },
 
 STEXI
@@ -739,8 +736,7 @@ ETEXI
         .args_type  = "",
         .params     = "",
         .help       = "inject an NMI on all guest's CPUs",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_inject_nmi,
+        .mhandler.cmd = hmp_inject_nmi,
     },
 #endif
 STEXI

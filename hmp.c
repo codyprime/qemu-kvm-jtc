@@ -14,6 +14,14 @@
 #include "hmp.h"
 #include "qmp-commands.h"
 
+static void hmp_handle_error(Monitor *mon, Error **errp)
+{
+    if (error_is_set(errp)) {
+        monitor_printf(mon, "%s\n", error_get_pretty(*errp));
+        error_free(*errp);
+    }
+}
+
 void hmp_info_name(Monitor *mon)
 {
     NameInfo *info;
@@ -530,4 +538,66 @@ void hmp_cpu(Monitor *mon, const QDict *qdict)
     if (monitor_set_cpu(cpu_index) < 0) {
         monitor_printf(mon, "invalid CPU index\n");
     }
+}
+
+void hmp_memsave(Monitor *mon, const QDict *qdict)
+{
+    uint32_t size = qdict_get_int(qdict, "size");
+    const char *filename = qdict_get_str(qdict, "filename");
+    uint64_t addr = qdict_get_int(qdict, "val");
+    Error *errp = NULL;
+
+    qmp_memsave(addr, size, filename, true, monitor_get_cpu_index(), &errp);
+    hmp_handle_error(mon, &errp);
+}
+
+void hmp_pmemsave(Monitor *mon, const QDict *qdict)
+{
+    uint32_t size = qdict_get_int(qdict, "size");
+    const char *filename = qdict_get_str(qdict, "filename");
+    uint64_t addr = qdict_get_int(qdict, "val");
+    Error *errp = NULL;
+
+    qmp_pmemsave(addr, size, filename, &errp);
+    hmp_handle_error(mon, &errp);
+}
+
+static void hmp_cont_cb(void *opaque, int err)
+{
+    Monitor *mon = opaque;
+
+    if (!err) {
+        hmp_cont(mon, NULL);
+    }
+}
+
+void hmp_cont(Monitor *mon, const QDict *qdict)
+{
+    Error *errp = NULL;
+
+    qmp_cont(&errp);
+    if (error_is_set(&errp)) {
+        if (error_is_type(errp, QERR_DEVICE_ENCRYPTED)) {
+            const char *device;
+
+            /* The device is encrypted. Ask the user for the password
+               and retry */
+
+            device = error_get_field(errp, "device");
+            assert(device != NULL);
+
+            monitor_read_block_device_key(mon, device, hmp_cont_cb, mon);
+            error_free(errp);
+            return;
+        }
+        hmp_handle_error(mon, &errp);
+    }
+}
+
+void hmp_inject_nmi(Monitor *mon, const QDict *qdict)
+{
+    Error *errp = NULL;
+
+    qmp_inject_nmi(&errp);
+    hmp_handle_error(mon, &errp);
 }

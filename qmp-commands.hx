@@ -199,10 +199,7 @@ EQMP
     {
         .name       = "cont",
         .args_type  = "",
-        .params     = "",
-        .help       = "resume emulation",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_cont,
+        .mhandler.cmd_new = qmp_marshal_input_cont,
     },
 
 SQMP
@@ -244,10 +241,7 @@ EQMP
     {
         .name       = "system_powerdown",
         .args_type  = "",
-        .params     = "",
-        .help       = "send system power down event",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_system_powerdown,
+        .mhandler.cmd_new = qmp_marshal_input_system_powerdown,
     },
 
 SQMP
@@ -355,11 +349,8 @@ EQMP
 
     {
         .name       = "memsave",
-        .args_type  = "val:l,size:i,filename:s",
-        .params     = "addr size file",
-        .help       = "save to disk virtual memory dump starting at 'addr' of size 'size'",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_memory_save,
+        .args_type  = "val:l,size:i,filename:s,cpu:i?",
+        .mhandler.cmd_new = qmp_marshal_input_memsave,
     },
 
 SQMP
@@ -373,6 +364,7 @@ Arguments:
 - "val": the starting address (json-int)
 - "size": the memory size, in bytes (json-int)
 - "filename": file path (json-string)
+- "cpu": virtual CPU index (json-int, optional)
 
 Example:
 
@@ -382,17 +374,12 @@ Example:
                             "filename": "/tmp/virtual-mem-dump" } }
 <- { "return": {} }
 
-Note: Depends on the current CPU.
-
 EQMP
 
     {
         .name       = "pmemsave",
         .args_type  = "val:l,size:i,filename:s",
-        .params     = "addr size file",
-        .help       = "save to disk physical memory dump starting at 'addr' of size 'size'",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_physical_memory_save,
+        .mhandler.cmd_new = qmp_marshal_input_pmemsave,
     },
 
 SQMP
@@ -420,10 +407,7 @@ EQMP
     {
         .name       = "inject-nmi",
         .args_type  = "",
-        .params     = "",
-        .help       = "",
-        .user_print = monitor_user_noop,
-        .mhandler.cmd_new = do_inject_nmi,
+        .mhandler.cmd_new = qmp_marshal_input_inject_nmi,
     },
 
 SQMP

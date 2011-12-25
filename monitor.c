@@ -1094,65 +1094,6 @@ static void do_singlestep(Monitor *mon, const QDict *qdict)
     }
 }
 
-static void encrypted_bdrv_it(void *opaque, BlockDriverState *bs);
-
-struct bdrv_iterate_context {
-    Monitor *mon;
-    int err;
-};
-
-static void iostatus_bdrv_it(void *opaque, BlockDriverState *bs)
-{
-    bdrv_iostatus_reset(bs);
-}
-
-/**
- * do_cont(): Resume emulation.
- */
-static int do_cont(Monitor *mon, const QDict *qdict, QObject **ret_data)
-{
-    struct bdrv_iterate_context context = { mon, 0 };
-
-    if (runstate_check(RUN_STATE_INMIGRATE)) {
-        qerror_report(QERR_MIGRATION_EXPECTED);
-        return -1;
-    } else if (runstate_check(RUN_STATE_INTERNAL_ERROR) ||
-               runstate_check(RUN_STATE_SHUTDOWN)) {
-        qerror_report(QERR_RESET_REQUIRED);
-        return -1;
-    }
-
-    bdrv_iterate(iostatus_bdrv_it, NULL);
-    bdrv_iterate(encrypted_bdrv_it, &context);
-    /* only resume the vm if all keys are set and valid */
-    if (!context.err) {
-        vm_start();
-        return 0;
-    } else {
-        return -1;
-    }
-}
-
-static void bdrv_key_cb(void *opaque, int err)
-{
-    Monitor *mon = opaque;
-
-    /* another key was set successfully, retry to continue */
-    if (!err)
-        do_cont(mon, NULL, NULL);
-}
-
-static void encrypted_bdrv_it(void *opaque, BlockDriverState *bs)
-{
-    struct bdrv_iterate_context *context = opaque;
-
-    if (!context->err && bdrv_key_required(bs)) {
-        context->err = -EBUSY;
-        monitor_read_bdrv_key_start(context->mon, bs, bdrv_key_cb,
-                                    context->mon);
-    }
-}
-
 static void do_gdbserver(Monitor *mon, const QDict *qdict)
 {
     const char *device = qdict_get_try_str(qdict, "device");
@@ -1389,81 +1330,6 @@ static void do_print(Monitor *mon, const QDict *qdict)
     }
 #endif
     monitor_printf(mon, "\n");
-}
-
-static int do_memory_save(Monitor *mon, const QDict *qdict, QObject **ret_data)
-{
-    FILE *f;
-    uint32_t size = qdict_get_int(qdict, "size");
-    const char *filename = qdict_get_str(qdict, "filename");
-    target_long addr = qdict_get_int(qdict, "val");
-    uint32_t l;
-    CPUState *env;
-    uint8_t buf[1024];
-    int ret = -1;
-
-    env = mon_get_cpu();
-
-    f = fopen(filename, "wb");
-    if (!f) {
-        qerror_report(QERR_OPEN_FILE_FAILED, filename);
-        return -1;
-    }
-    while (size != 0) {
-        l = sizeof(buf);
-        if (l > size)
-            l = size;
-        cpu_memory_rw_debug(env, addr, buf, l, 0);
-        if (fwrite(buf, 1, l, f) != l) {
-            monitor_printf(mon, "fwrite() error in do_memory_save\n");
-            goto exit;
-        }
-        addr += l;
-        size -= l;
-    }
-
-    ret = 0;
-
-exit:
-    fclose(f);
-    return ret;
-}
-
-static int do_physical_memory_save(Monitor *mon, const QDict *qdict,
-                                    QObject **ret_data)
-{
-    FILE *f;
-    uint32_t l;
-    uint8_t buf[1024];
-    uint32_t size = qdict_get_int(qdict, "size");
-    const char *filename = qdict_get_str(qdict, "filename");
-    target_phys_addr_t addr = qdict_get_int(qdict, "val");
-    int ret = -1;
-
-    f = fopen(filename, "wb");
-    if (!f) {
-        qerror_report(QERR_OPEN_FILE_FAILED, filename);
-        return -1;
-    }
-    while (size != 0) {
-        l = sizeof(buf);
-        if (l > size)
-            l = size;
-        cpu_physical_memory_read(addr, buf, l);
-        if (fwrite(buf, 1, l, f) != l) {
-            monitor_printf(mon, "fwrite() error in do_physical_memory_save\n");
-            goto exit;
-        }
-        fflush(f);
-        addr += l;
-        size -= l;
-    }
-
-    ret = 0;
-
-exit:
-    fclose(f);
-    return ret;
 }
 
 static void do_sum(Monitor *mon, const QDict *qdict)
@@ -1815,16 +1681,6 @@ static void do_boot_set(Monitor *mon, const QDict *qdict)
         monitor_printf(mon, "no function defined to set boot device list for "
                        "this architecture\n");
     }
-}
-
-/**
- * do_system_powerdown(): Issue a machine powerdown
- */
-static int do_system_powerdown(Monitor *mon, const QDict *qdict,
-                               QObject **ret_data)
-{
-    qemu_system_powerdown_request();
-    return 0;
 }
 
 #if defined(TARGET_I386)
@@ -2366,29 +2222,6 @@ static void do_wav_capture(Monitor *mon, const QDict *qdict)
         return;
     }
     QLIST_INSERT_HEAD (&capture_head, s, entries);
-}
-#endif
-
-#if defined(TARGET_I386)
-static int do_inject_nmi(Monitor *mon, const QDict *qdict, QObject **ret_data)
-{
-    CPUState *env;
-
-    for (env = first_cpu; env != NULL; env = env->next_cpu) {
-        if (!env->apic_state) {
-            cpu_interrupt(env, CPU_INTERRUPT_NMI);
-        } else {
-            apic_deliver_nmi(env->apic_state);
-        }
-    }
-
-    return 0;
-}
-#else
-static int do_inject_nmi(Monitor *mon, const QDict *qdict, QObject **ret_data)
-{
-    qerror_report(QERR_UNSUPPORTED);
-    return -1;
 }
 #endif
 
@@ -4967,4 +4800,19 @@ int monitor_read_bdrv_key_start(Monitor *mon, BlockDriverState *bs,
         completion_cb(opaque, err);
 
     return err;
+}
+
+int monitor_read_block_device_key(Monitor *mon, const char *device,
+                                  BlockDriverCompletionFunc *completion_cb,
+                                  void *opaque)
+{
+    BlockDriverState *bs;
+
+    bs = bdrv_find(device);
+    if (!bs) {
+        monitor_printf(mon, "Device not found %s\n", device);
+        return -1;
+    }
+
+    return monitor_read_bdrv_key_start(mon, bs, completion_cb, opaque);
 }
