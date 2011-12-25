@@ -31,7 +31,9 @@ static uint32_t test_device_memsize_read(void *opaque, uint32_t addr)
 
 static void test_device_irq_line(void *opaque, uint32_t addr, uint32_t data)
 {
-    qemu_set_irq(isa_get_irq(addr - 0x2000), !!data);
+    struct testdev *dev = opaque;
+
+    qemu_set_irq(isa_get_irq(&dev->dev, addr - 0x2000), !!data);
 }
 
 static uint32 test_device_ioport_data;
@@ -112,7 +114,7 @@ static int init_test_device(ISADevice *isa)
     register_ioport_write(0xe4, 1, 4, test_device_flush_page, dev);
     register_ioport_write(0x2000, 24, 1, test_device_irq_line, NULL);
     iomem_buf = g_malloc0(0x10000);
-    memory_region_init_io(&dev->iomem, &test_iomem_ops, NULL,
+    memory_region_init_io(&dev->iomem, &test_iomem_ops, dev,
                           "testdev", 0x10000);
     memory_region_add_subregion(isa_address_space(&dev->dev), 0xff000000,
                                                   &dev->iomem);

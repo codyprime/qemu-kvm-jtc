@@ -20,6 +20,11 @@ TMPE="${TMPDIR1}/qemu-conf-${RANDOM}-$$-${RANDOM}.exe"
 trap "rm -f $TMPC $TMPO $TMPE" EXIT INT QUIT TERM
 rm -f config.log
 
+# Print a helpful header at the top of config.log
+echo "# QEMU configure log $(date)" >> config.log
+echo "# produced by $0 $*" >> config.log
+echo "#" >> config.log
+
 compile_object() {
   echo $cc $QEMU_CFLAGS -c -o $TMPO $TMPC >> config.log
   $cc $QEMU_CFLAGS -c -o $TMPO $TMPC >> config.log 2>&1
@@ -263,7 +268,7 @@ source_path=`cd "$source_path"; pwd`
 check_define() {
 cat > $TMPC <<EOF
 #if !defined($1)
-#error Not defined
+#error $1 not defined
 #endif
 int main(void) { return 0; }
 EOF
@@ -1106,7 +1111,7 @@ fi
 
 # check that the C compiler works.
 cat > $TMPC <<EOF
-int main(void) {}
+int main(void) { return 0; }
 EOF
 
 if compile_object ; then
@@ -1140,7 +1145,7 @@ fi
 
 if test "$pie" = ""; then
   case "$cpu-$targetos" in
-    i386-Linux|x86_64-Linux)
+    i386-Linux|x86_64-Linux|i386-OpenBSD|x86_64-OpenBSD)
       ;;
     *)
       pie="no"
@@ -1298,11 +1303,11 @@ if test "$nptl" != "no" ; then
   cat > $TMPC <<EOF
 #include <sched.h>
 #include <linux/futex.h>
-void foo()
-{
+int main(void) {
 #if !defined(CLONE_SETTLS) || !defined(FUTEX_WAIT)
 #error bork
 #endif
+  return 0;
 }
 EOF
 
@@ -1341,8 +1346,28 @@ fi
 if test "$xen" != "no" ; then
   xen_libs="-lxenstore -lxenctrl -lxenguest"
 
-  # Xen unstable
+  # First we test whether Xen headers and libraries are available.
+  # If no, we are done and there is no Xen support.
+  # If yes, more tests are run to detect the Xen version.
+
+  # Xen (any)
   cat > $TMPC <<EOF
+#include <xenctrl.h>
+#include <xs.h>
+int main(void) {
+  return 0;
+}
+EOF
+  if ! compile_prog "" "$xen_libs" ; then
+    # Xen not found
+    if test "$xen" = "yes" ; then
+      feature_not_found "xen"
+    fi
+    xen=no
+
+  # Xen unstable
+  elif (
+      cat > $TMPC <<EOF
 #include <xenctrl.h>
 #include <xs.h>
 #include <stdint.h>
@@ -1360,7 +1385,8 @@ int main(void) {
   return 0;
 }
 EOF
-  if compile_prog "" "$xen_libs" ; then
+      compile_prog "" "$xen_libs"
+    ) ; then
     xen_ctrl_version=410
     xen=yes
 
@@ -1431,10 +1457,10 @@ EOF
     xen_ctrl_version=330
     xen=yes
 
-  # Xen not found or unsupported
+  # Xen version unsupported
   else
     if test "$xen" = "yes" ; then
-      feature_not_found "xen"
+      feature_not_found "xen (unsupported version)"
     fi
     xen=no
   fi
@@ -1551,9 +1577,6 @@ int main(void) { return 0; }
 EOF
   if compile_prog "$sdl_cflags" "$sdl_libs" ; then
     sdl_libs="$sdl_libs -lX11"
-  fi
-  if test "$mingw32" = "yes" ; then
-    sdl_libs="`echo $sdl_libs | sed s/-mwindows//g` -mconsole"
   fi
   libs_softmmu="$sdl_libs $libs_softmmu"
 fi
@@ -1697,6 +1720,7 @@ fi
 # xfsctl() probe, used for raw-posix
 if test "$xfs" != "no" ; then
   cat > $TMPC << EOF
+#include <stddef.h>  /* NULL */
 #include <xfs/xfs.h>
 int main(void)
 {
@@ -1868,7 +1892,11 @@ if test "$curses" != "no" ; then
 #ifdef __OpenBSD__
 #define resize_term resizeterm
 #endif
-int main(void) { resize_term(0, 0); return curses_version(); }
+int main(void) {
+  const char *s = curses_version();
+  resize_term(0, 0);
+  return s != 0;
+}
 EOF
   for curses_lib in $curses_list; do
     if compile_prog "" "$curses_lib" ; then
@@ -1974,7 +2002,12 @@ PTHREADLIBS_LIST="-pthread -lpthread -lpthreadGC2"
 pthread=no
 cat > $TMPC << EOF
 #include <pthread.h>
-int main(void) { pthread_create(0,0,0,0); return 0; }
+static void *f(void *p) { return NULL; }
+int main(void) {
+  pthread_t thread;
+  pthread_create(&thread, 0, f, 0);
+  return 0;
+}
 EOF
 if compile_prog "" "" ; then
   pthread=yes
@@ -2078,7 +2111,7 @@ cat > $TMPC <<EOF
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <unistd.h>
-int main(void) { struct iovec iov; return 0; }
+int main(void) { return sizeof(struct iovec); }
 EOF
 iovec=no
 if compile_prog "" "" ; then
@@ -2091,7 +2124,7 @@ cat > $TMPC <<EOF
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <unistd.h>
-int main(void) { preadv; }
+int main(void) { return preadv == preadv; }
 EOF
 preadv=no
 if compile_prog "" "" ; then
@@ -2124,7 +2157,7 @@ if test "$opengl" != "no" ; then
 #include <X11/Xlib.h>
 #include <GL/gl.h>
 #include <GL/glx.h>
-int main(void) { GL_VERSION; return 0; }
+int main(void) { return GL_VERSION != 0; }
 EOF
   if compile_prog "" "-lGL" ; then
     opengl=yes
@@ -2255,7 +2288,7 @@ cat > $TMPC << EOF
 
 int main(void)
 {
-    int len, fd;
+    int len, fd = 0;
     len = tee(STDIN_FILENO, STDOUT_FILENO, INT_MAX, SPLICE_F_NONBLOCK);
     splice(STDIN_FILENO, NULL, fd, NULL, len, SPLICE_F_MOVE);
     return 0;
@@ -2269,7 +2302,6 @@ fi
 # signalfd probe
 signalfd="no"
 cat > $TMPC << EOF
-#define _GNU_SOURCE
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <signal.h>
@@ -2287,8 +2319,7 @@ cat > $TMPC << EOF
 
 int main(void)
 {
-    int efd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
-    return 0;
+    return eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
 }
 EOF
 if compile_prog "" "" ; then
@@ -2388,8 +2419,7 @@ int main(void)
      * warning but not an error, and will proceed to fail the
      * qemu compile where we compile with -Werror.)
      */
-    epoll_create1;
-    return 0;
+    return epoll_create1 == epoll_create1;
 }
 EOF
 if compile_prog "$ARCH_CFLAGS" "" ; then
@@ -2468,7 +2498,7 @@ fi
 cat > $TMPC <<EOF
 #include <signal.h>
 #include <time.h>
-int main(void) { clockid_t id; return clock_gettime(id, NULL); }
+int main(void) { return clock_gettime(CLOCK_REALTIME, NULL); }
 EOF
 
 if compile_prog "" "" ; then
@@ -2678,7 +2708,7 @@ ucontext_coroutine=no
 if test "$darwin" != "yes"; then
   cat > $TMPC << EOF
 #include <ucontext.h>
-int main(void) { makecontext(0, 0, 0); }
+int main(void) { makecontext(0, 0, 0); return 0; }
 EOF
   if compile_prog "" "" ; then
       ucontext_coroutine=yes
@@ -2691,7 +2721,7 @@ fi
 open_by_hande_at=no
 cat > $TMPC << EOF
 #include <fcntl.h>
-int main(void) { struct file_handle fh; open_by_handle_at(0, &fh, 0); }
+int main(void) { struct file_handle fh; return open_by_handle_at(0, &fh, 0); }
 EOF
 if compile_prog "" "" ; then
     open_by_handle_at=yes
@@ -2704,6 +2734,7 @@ linux_magic_h=no
 cat > $TMPC << EOF
 #include <linux/magic.h>
 int main(void) {
+  return 0;
 }
 EOF
 if compile_prog "" "" ; then
@@ -2772,8 +2803,9 @@ if test "$softmmu" = yes ; then
     fi
     if [ "$check_utests" = "yes" ]; then
       checks="check-qint check-qstring check-qdict check-qlist"
-      checks="check-qfloat check-qjson test-coroutine $checks"
+      checks="check-qfloat check-qjson $checks"
     fi
+    test_progs="$checks test-coroutine test-qmp-output-visitor test-qmp-input-visitor"
   fi
 fi
 
@@ -3267,7 +3299,7 @@ if test "$trace_default" = "yes"; then
 fi
 
 echo "TOOLS=$tools" >> $config_host_mak
-echo "CHECKS=$checks" >> $config_host_mak
+echo "CHECKS=$test_progs" >> $config_host_mak
 echo "ROMS=$roms" >> $config_host_mak
 echo "MAKE=$make" >> $config_host_mak
 echo "INSTALL=$install" >> $config_host_mak
@@ -3317,6 +3349,22 @@ for d in libdis libdis-user; do
     symlink $source_path/Makefile.dis $d/Makefile
     echo > $d/config.mak
 done
+
+# use included Linux headers
+if test "$linux" = "yes" ; then
+  mkdir -p linux-headers
+  case "$cpu" in
+  i386|x86_64)
+    symlink $source_path/linux-headers/asm-x86 linux-headers/asm
+    ;;
+  ppcemb|ppc|ppc64)
+    symlink $source_path/linux-headers/asm-powerpc linux-headers/asm
+    ;;
+  s390x)
+    symlink $source_path/linux-headers/asm-s390 linux-headers/asm
+    ;;
+  esac
+fi
 
 for target in $target_list; do
 target_dir="$target"
@@ -3650,6 +3698,10 @@ else
 fi
 includes="-I\$(SRC_PATH)/tcg $includes"
 
+if test "$linux" = "yes" ; then
+  includes="-I\$(SRC_PATH)/linux-headers $includes"
+fi
+
 if test "$target_user_only" = "yes" ; then
     libdis_config_mak=libdis-user/config.mak
 else
@@ -3777,23 +3829,6 @@ if test "$target_linux_user" = "yes" -o "$target_bsd_user" = "yes" ; then
     ;;
   *)
     ldflags="$linker_script $ldflags"
-    ;;
-  esac
-fi
-
-# use included Linux headers
-if test "$linux" = "yes" ; then
-  includes="-I\$(SRC_PATH)/linux-headers $includes"
-  mkdir -p linux-headers
-  case "$cpu" in
-  i386|x86_64)
-    symlink $source_path/linux-headers/asm-x86 linux-headers/asm
-    ;;
-  ppcemb|ppc|ppc64)
-    symlink $source_path/linux-headers/asm-powerpc linux-headers/asm
-    ;;
-  s390x)
-    symlink $source_path/linux-headers/asm-s390 linux-headers/asm
     ;;
   esac
 fi

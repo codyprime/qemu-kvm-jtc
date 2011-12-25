@@ -851,13 +851,13 @@ static const int ne2000_irq[NE2000_NB_MAX] = { 9, 10, 11, 3, 4, 5 };
 static const int parallel_io[MAX_PARALLEL_PORTS] = { 0x378, 0x278, 0x3bc };
 static const int parallel_irq[MAX_PARALLEL_PORTS] = { 7, 7, 7 };
 
-void pc_init_ne2k_isa(NICInfo *nd)
+void pc_init_ne2k_isa(ISABus *bus, NICInfo *nd)
 {
     static int nb_ne2k = 0;
 
     if (nb_ne2k == NE2000_NB_MAX)
         return;
-    isa_ne2000_init(ne2000_io[nb_ne2k],
+    isa_ne2000_init(bus, ne2000_io[nb_ne2k],
                     ne2000_irq[nb_ne2k], nd);
     nb_ne2k++;
 }
@@ -985,7 +985,7 @@ void pc_memory_init(MemoryRegion *system_memory,
     linux_boot = (kernel_filename != NULL);
 
     /* Allocate RAM.  We allocate it as a single memory region and use
-     * aliases to address portions of it, mostly for backwards compatiblity
+     * aliases to address portions of it, mostly for backwards compatibility
      * with older qemus that used qemu_ram_alloc().
      */
     ram = g_malloc(sizeof(*ram));
@@ -1075,38 +1075,44 @@ qemu_irq *pc_allocate_cpu_irq(void)
     return qemu_allocate_irqs(pic_irq_request, NULL, 1);
 }
 
-void pc_vga_init(PCIBus *pci_bus)
+DeviceState *pc_vga_init(ISABus *isa_bus, PCIBus *pci_bus)
 {
+    DeviceState *dev = NULL;
+
     if (cirrus_vga_enabled) {
         if (pci_bus) {
-            pci_cirrus_vga_init(pci_bus);
+            dev = pci_cirrus_vga_init(pci_bus);
         } else {
-            isa_cirrus_vga_init(get_system_memory());
+            dev = isa_cirrus_vga_init(get_system_memory());
         }
     } else if (vmsvga_enabled) {
         if (pci_bus) {
-            if (!pci_vmsvga_init(pci_bus)) {
+            dev = pci_vmsvga_init(pci_bus);
+            if (!dev) {
                 fprintf(stderr, "Warning: vmware_vga not available,"
                         " using standard VGA instead\n");
-                pci_vga_init(pci_bus);
+                dev = pci_vga_init(pci_bus);
             }
         } else {
             fprintf(stderr, "%s: vmware_vga: no PCI bus\n", __FUNCTION__);
         }
 #ifdef CONFIG_SPICE
     } else if (qxl_enabled) {
-        if (pci_bus)
-            pci_create_simple(pci_bus, -1, "qxl-vga");
-        else
+        if (pci_bus) {
+            dev = &pci_create_simple(pci_bus, -1, "qxl-vga")->qdev;
+        } else {
             fprintf(stderr, "%s: qxl: no PCI bus\n", __FUNCTION__);
+        }
 #endif
     } else if (std_vga_enabled) {
         if (pci_bus) {
-            pci_vga_init(pci_bus);
+            dev = pci_vga_init(pci_bus);
         } else {
-            isa_vga_init();
+            dev = isa_vga_init(isa_bus);
         }
     }
+
+    return dev;
 }
 
 static void cpu_request_exit(void *opaque, int irq, int level)
@@ -1118,7 +1124,7 @@ static void cpu_request_exit(void *opaque, int irq, int level)
     }
 }
 
-void pc_basic_device_init(qemu_irq *gsi,
+void pc_basic_device_init(ISABus *isa_bus, qemu_irq *gsi,
                           ISADevice **rtc_state,
                           ISADevice **floppy,
                           bool no_vmport)
@@ -1144,31 +1150,31 @@ void pc_basic_device_init(qemu_irq *gsi,
             rtc_irq = qdev_get_gpio_in(hpet, 0);
         }
     }
-    *rtc_state = rtc_init(2000, rtc_irq);
+    *rtc_state = rtc_init(isa_bus, 2000, rtc_irq);
 
     qemu_register_boot_set(pc_boot_set, *rtc_state);
 
-    pit = pit_init(0x40, 0);
+    pit = pit_init(isa_bus, 0x40, 0);
     pcspk_init(pit);
 
     for(i = 0; i < MAX_SERIAL_PORTS; i++) {
         if (serial_hds[i]) {
-            serial_isa_init(i, serial_hds[i]);
+            serial_isa_init(isa_bus, i, serial_hds[i]);
         }
     }
 
     for(i = 0; i < MAX_PARALLEL_PORTS; i++) {
         if (parallel_hds[i]) {
-            parallel_init(i, parallel_hds[i]);
+            parallel_init(isa_bus, i, parallel_hds[i]);
         }
     }
 
     a20_line = qemu_allocate_irqs(handle_a20_line_change, first_cpu, 2);
-    i8042 = isa_create_simple("i8042");
+    i8042 = isa_create_simple(isa_bus, "i8042");
     i8042_setup_a20_line(i8042, &a20_line[0]);
     if (!no_vmport) {
-        vmport_init();
-        vmmouse = isa_try_create("vmmouse");
+        vmport_init(isa_bus);
+        vmmouse = isa_try_create(isa_bus, "vmmouse");
     } else {
         vmmouse = NULL;
     }
@@ -1176,7 +1182,7 @@ void pc_basic_device_init(qemu_irq *gsi,
         qdev_prop_set_ptr(&vmmouse->qdev, "ps2_mouse", i8042);
         qdev_init_nofail(&vmmouse->qdev);
     }
-    port92 = isa_create_simple("port92");
+    port92 = isa_create_simple(isa_bus, "port92");
     port92_init(port92, &a20_line[1]);
 
     cpu_exit_irq = qemu_allocate_irqs(cpu_request_exit, NULL, 1);
@@ -1185,7 +1191,7 @@ void pc_basic_device_init(qemu_irq *gsi,
     for(i = 0; i < MAX_FD; i++) {
         fd[i] = drive_get(IF_FLOPPY, 0, i);
     }
-    *floppy = fdctrl_init_isa(fd);
+    *floppy = fdctrl_init_isa(isa_bus, fd);
 }
 
 void pc_pci_device_init(PCIBus *pci_bus)

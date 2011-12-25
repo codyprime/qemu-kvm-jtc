@@ -65,6 +65,10 @@ static const QErrorStringTable qerror_table[] = {
         .desc      = "The command %(name) has not been found",
     },
     {
+        .error_fmt = QERR_COMMAND_DISABLED,
+        .desc      = "The command %(name) has been disabled for this instance",
+    },
+    {
         .error_fmt = QERR_DEVICE_ENCRYPTED,
         .desc      = "Device '%(device)' is encrypted",
     },
@@ -149,6 +153,10 @@ static const QErrorStringTable qerror_table[] = {
         .desc      = "Password incorrect",
     },
     {
+        .error_fmt = QERR_IO_ERROR,
+        .desc      = "An IO error has occurred",
+    },
+    {
         .error_fmt = QERR_JSON_PARSING,
         .desc      = "Invalid JSON syntax",
     },
@@ -178,6 +186,10 @@ static const QErrorStringTable qerror_table[] = {
         .desc      = "Could not open '%(filename)'",
     },
     {
+        .error_fmt = QERR_PERMISSION_DENIED,
+        .desc      = "Insufficient permission to perform this operation",
+    },
+    {
         .error_fmt = QERR_PROPERTY_NOT_FOUND,
         .desc      = "Property '%(device).%(property)' not found",
     },
@@ -192,6 +204,11 @@ static const QErrorStringTable qerror_table[] = {
     {
         .error_fmt = QERR_PROPERTY_VALUE_NOT_FOUND,
         .desc      = "Property '%(device).%(property)' can't find value '%(value)'",
+    },
+    {
+        .error_fmt = QERR_PROPERTY_VALUE_OUT_OF_RANGE,
+        .desc      = "Property '%(device).%(property)' doesn't take "
+                     "value %(value) (minimum: %(min), maximum: %(max)'",
     },
     {
         .error_fmt = QERR_QMP_BAD_INPUT_OBJECT,
@@ -253,7 +270,7 @@ static const QErrorStringTable qerror_table[] = {
     },
     {
         .error_fmt = QERR_INVALID_PARAMETER_COMBINATION,
-        .desc      = "Invalid paramter combination",
+        .desc      = "Invalid parameter combination",
     },
     {}
 };
