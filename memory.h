@@ -116,15 +116,16 @@ struct MemoryRegion {
     Int128 size;
     target_phys_addr_t addr;
     target_phys_addr_t offset;
-    bool backend_registered;
     void (*destructor)(MemoryRegion *mr);
     ram_addr_t ram_addr;
     IORange iorange;
+    bool subpage;
     bool terminates;
     bool readable;
     bool ram;
     bool readonly; /* For RAM regions */
     bool enabled;
+    bool rom_device;
     MemoryRegion *alias;
     target_phys_addr_t alias_offset;
     unsigned priority;
