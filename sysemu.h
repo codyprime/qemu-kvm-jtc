@@ -145,8 +145,12 @@ void qemu_system_cpu_hot_add(int cpu, int state);
 
 /* pci-hotplug */
 void pci_device_hot_add(Monitor *mon, const QDict *qdict);
-void drive_hot_add(Monitor *mon, const QDict *qdict);
+int pci_drive_hot_add(Monitor *mon, const QDict *qdict,
+                      DriveInfo *dinfo, int type);
 void do_pci_device_hot_remove(Monitor *mon, const QDict *qdict);
+
+/* generic hotplug */
+void drive_hot_add(Monitor *mon, const QDict *qdict);
 
 /* pcie aer error injection */
 void pcie_aer_inject_error_print(Monitor *mon, const QObject *data);
