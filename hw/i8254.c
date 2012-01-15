@@ -347,11 +347,6 @@ static uint32_t pit_ioport_read(void *opaque, uint32_t addr)
     return ret;
 }
 
-/* global counters for time-drift fix */
-int64_t timer_acks=0, timer_interrupts=0, timer_ints_to_push=0;
-
-extern int time_drift_fix;
-
 static void pit_irq_timer_update(PITChannelState *s, int64_t current_time)
 {
     int64_t expire_time;
@@ -362,35 +357,16 @@ static void pit_irq_timer_update(PITChannelState *s, int64_t current_time)
     expire_time = pit_get_next_transition_time(s, current_time);
     irq_level = pit_get_out1(s, current_time);
     qemu_set_irq(s->irq, irq_level);
-    if (time_drift_fix && irq_level==1) {
-        /* FIXME: fine tune timer_max_fix (max fix per tick). 
-         *        Should it be 1 (double time), 2 , 4, 10 ? 
-         *        Currently setting it to 5% of PIT-ticks-per-second (per PIT-tick)
-         */
-        const long pit_ticks_per_sec = (s->count>0) ? (PIT_FREQ/s->count) : 0;
-        const long timer_max_fix = pit_ticks_per_sec/20;
-        const long delta = timer_interrupts - timer_acks;
-        const long max_delta = pit_ticks_per_sec * 60; /* one minute */
-        if ((delta >  max_delta) && (pit_ticks_per_sec > 0)) {
-            printf("time drift is too long, %ld seconds were lost\n", delta/pit_ticks_per_sec);
-            timer_acks = timer_interrupts;
-            timer_ints_to_push = 0;
-        } else if (delta > 0) {
-            timer_ints_to_push = MIN(delta, timer_max_fix);
-        }
-        timer_interrupts++;
-    }
 #ifdef DEBUG_PIT
     printf("irq_level=%d next_delay=%f\n",
            irq_level,
            (double)(expire_time - current_time) / get_ticks_per_sec());
 #endif
     s->next_transition_time = expire_time;
-    if (expire_time != -1) {
+    if (expire_time != -1)
         qemu_mod_timer(s->irq_timer, expire_time);
-    } else {
+    else
         qemu_del_timer(s->irq_timer);
-    }
 }
 
 static void pit_irq_timer(void *opaque)

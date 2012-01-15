@@ -2633,8 +2633,8 @@ DEF("no-kvm-pit-reinjection", 0, QEMU_OPTION_no_kvm_pit_reinjection,
     "-no-kvm-pit-reinjection\n"
     "                disable KVM kernel mode PIT interrupt reinjection\n",
     QEMU_ARCH_I386)
-DEF("tdf", 0, QEMU_OPTION_tdf,
-    "-tdf            enable guest time drift compensation\n", QEMU_ARCH_ALL)
+HXCOMM -tdf is deprecated and ignored today
+DEF("tdf", 0, QEMU_OPTION_tdf, "", QEMU_ARCH_ALL)
 DEF("kvm-shadow-memory", HAS_ARG, QEMU_OPTION_kvm_shadow_memory,
     "-kvm-shadow-memory MEGABYTES\n"
     "                allocate MEGABYTES for kvm mmu shadowing\n",
