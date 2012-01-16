@@ -540,6 +540,13 @@ again:
         fprintf(stderr, "%s: read failed, errno = %d\n", __func__, errno);
     }
 
+    /* Restore or clear multifunction, this is always controlled by qemu */
+    if (pci_dev->dev.cap_present & QEMU_PCI_CAP_MULTIFUNCTION) {
+        pci_dev->dev.config[PCI_HEADER_TYPE] |= PCI_HEADER_TYPE_MULTI_FUNCTION;
+    } else {
+        pci_dev->dev.config[PCI_HEADER_TYPE] &= ~PCI_HEADER_TYPE_MULTI_FUNCTION;
+    }
+
     /* Clear host resource mapping info.  If we choose not to register a
      * BAR, such as might be the case with the option ROM, we can get
      * confusing, unwritable, residual addresses from the host here. */
@@ -1575,7 +1582,6 @@ static int assigned_initfn(struct PCIDevice *pci_dev)
     assigned_dev_direct_config_read(dev, PCI_CLASS_PROG, 3);
     assigned_dev_direct_config_read(dev, PCI_CACHE_LINE_SIZE, 1);
     assigned_dev_direct_config_read(dev, PCI_LATENCY_TIMER, 1);
-    assigned_dev_direct_config_read(dev, PCI_HEADER_TYPE, 1);
     assigned_dev_direct_config_read(dev, PCI_BIST, 1);
     assigned_dev_direct_config_read(dev, PCI_CARDBUS_CIS, 4);
     assigned_dev_direct_config_read(dev, PCI_SUBSYSTEM_VENDOR_ID, 2);
