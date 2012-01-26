@@ -570,6 +570,8 @@ void apic_init_reset(DeviceState *d)
     s->initial_count_load_time = 0;
     s->next_time = 0;
     s->wait_for_sipi = 1;
+
+    qemu_del_timer(s->timer);
 }
 
 static void apic_startup(APICState *s, int vector_num)

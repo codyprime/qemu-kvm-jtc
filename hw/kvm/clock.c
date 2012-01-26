@@ -9,13 +9,15 @@
  * This work is licensed under the terms of the GNU GPL version 2.
  * See the COPYING file in the top-level directory.
  *
+ * Contributions after 2012-01-13 are licensed under the terms of the
+ * GNU GPL, version 2 or (at your option) any later version.
  */
 
 #include "qemu-common.h"
 #include "sysemu.h"
-#include "sysbus.h"
 #include "kvm.h"
-#include "kvmclock.h"
+#include "hw/sysbus.h"
+#include "hw/kvm/clock.h"
 
 #include <linux/kvm.h>
 #include <linux/kvm_para.h>

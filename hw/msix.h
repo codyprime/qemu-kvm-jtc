@@ -29,8 +29,6 @@ void msix_notify(PCIDevice *dev, unsigned vector);
 
 void msix_reset(PCIDevice *dev);
 
-extern int msix_supported;
-
 int msix_set_mask_notifier(PCIDevice *dev, msix_mask_notifier_func);
 int msix_unset_mask_notifier(PCIDevice *dev);
 #endif
