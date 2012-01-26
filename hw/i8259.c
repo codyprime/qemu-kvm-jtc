@@ -28,6 +28,7 @@
 #include "qemu-timer.h"
 
 #include "kvm.h"
+#include "apic_internal.h"
 
 static void kvm_i8259_set_irq(void *opaque, int irq, int level);
 
