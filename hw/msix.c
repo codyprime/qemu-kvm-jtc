@@ -15,6 +15,7 @@
  */
 
 #include "hw.h"
+#include "msi.h"
 #include "msix.h"
 #include "pci.h"
 #include "range.h"
@@ -35,9 +36,6 @@
 #define MSIX_PAGE_PENDING (MSIX_PAGE_SIZE / 2)
 #define MSIX_MAX_ENTRIES 32
 
-
-/* Flag for interrupt controller to declare MSI-X support */
-int msix_supported;
 
 /* KVM specific MSIX helpers */
 static void kvm_msix_free(PCIDevice *dev)
@@ -349,12 +347,12 @@ int msix_init(struct PCIDevice *dev, unsigned short nentries,
               unsigned bar_nr, unsigned bar_size)
 {
     int ret;
+
     /* Nothing to do if MSI is not supported by interrupt controller */
-    if (!msix_supported ||
+    if (!msi_supported ||
         (kvm_enabled() && kvm_irqchip_in_kernel() && !kvm_has_gsi_routing())) {
         return -ENOTSUP;
     }
-
     if (nentries > MSIX_MAX_ENTRIES)
         return -EINVAL;
 
@@ -431,7 +429,7 @@ void msix_save(PCIDevice *dev, QEMUFile *f)
 {
     unsigned n = dev->msix_entries_nr;
 
-    if (!msix_supported) {
+    if (!msi_supported) {
         return;
     }
 
@@ -447,7 +445,7 @@ void msix_load(PCIDevice *dev, QEMUFile *f)
 {
     unsigned n = dev->msix_entries_nr;
 
-    if (!msix_supported)
+    if (!msi_supported)
         return;
 
     if (!(dev->cap_present & QEMU_PCI_CAP_MSIX)) {
