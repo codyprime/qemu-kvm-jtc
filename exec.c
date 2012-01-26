@@ -511,7 +511,7 @@ static void code_gen_alloc(unsigned long tb_size)
         if (code_gen_buffer_size > (512 * 1024 * 1024))
             code_gen_buffer_size = (512 * 1024 * 1024);
 #elif defined(__arm__)
-        /* Keep the buffer no bigger than 16GB to branch between blocks */
+        /* Keep the buffer no bigger than 16MB to branch between blocks */
         if (code_gen_buffer_size > 16 * 1024 * 1024)
             code_gen_buffer_size = 16 * 1024 * 1024;
 #elif defined(__s390x__)
@@ -4390,6 +4390,20 @@ tb_page_addr_t get_page_addr_code(CPUState *env1, target_ulong addr)
     }
     p = (void *)((uintptr_t)addr + env1->tlb_table[mmu_idx][page_index].addend);
     return qemu_ram_addr_from_host_nofail(p);
+}
+
+/*
+ * A helper function for the _utterly broken_ virtio device model to find out if
+ * it's running on a big endian machine. Don't do this at home kids!
+ */
+bool virtio_is_big_endian(void);
+bool virtio_is_big_endian(void)
+{
+#if defined(TARGET_WORDS_BIGENDIAN)
+    return true;
+#else
+    return false;
+#endif
 }
 
 #define MMUSUFFIX _cmmu

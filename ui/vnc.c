@@ -2686,19 +2686,16 @@ int vnc_display_disable_login(DisplayState *ds)
 
 int vnc_display_password(DisplayState *ds, const char *password)
 {
-    int ret = 0;
     VncDisplay *vs = ds ? (VncDisplay *)ds->opaque : vnc_display;
 
     if (!vs) {
-        ret = -EINVAL;
-        goto out;
+        return -EINVAL;
     }
 
     if (!password) {
         /* This is not the intention of this interface but err on the side
            of being safe */
-        ret = vnc_display_disable_login(ds);
-        goto out;
+        return vnc_display_disable_login(ds);
     }
 
     if (vs->password) {
@@ -2707,11 +2704,8 @@ int vnc_display_password(DisplayState *ds, const char *password)
     }
     vs->password = g_strdup(password);
     vs->auth = VNC_AUTH_VNC;
-out:
-    if (ret != 0) {
-        qerror_report(QERR_SET_PASSWD_FAILED);
-    }
-    return ret;
+
+    return 0;
 }
 
 int vnc_display_pw_expire(DisplayState *ds, time_t expires)
@@ -2763,7 +2757,7 @@ int vnc_display_open(DisplayState *ds, const char *display)
             password = 1; /* Require password auth */
         } else if (strncmp(options, "reverse", 7) == 0) {
             reverse = 1;
-        } else if (strncmp(options, "no-lock-key-sync", 9) == 0) {
+        } else if (strncmp(options, "no-lock-key-sync", 16) == 0) {
             lock_key_sync = 0;
 #ifdef CONFIG_VNC_SASL
         } else if (strncmp(options, "sasl", 4) == 0) {

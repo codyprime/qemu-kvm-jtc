@@ -353,7 +353,8 @@ static int kvm_get_dirty_pages_log_range(MemoryRegionSection *section,
                                          unsigned long *bitmap)
 {
     unsigned int i, j;
-    unsigned long page_number, addr, addr1, c;
+    unsigned long page_number, c;
+    target_phys_addr_t addr, addr1;
     unsigned int len = ((section->size / TARGET_PAGE_SIZE) + HOST_LONG_BITS - 1) / HOST_LONG_BITS;
 
     /*
@@ -574,6 +575,10 @@ static void kvm_set_phys_mem(MemoryRegionSection *section, bool add)
         }
 
         old = *mem;
+
+        if (mem->flags & KVM_MEM_LOG_DIRTY_PAGES) {
+            kvm_physical_sync_dirty_bitmap(section);
+        }
 
         /* unregister the overlapping slot */
         mem->memory_size = 0;

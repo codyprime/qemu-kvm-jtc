@@ -493,12 +493,8 @@ PCIDevice *pci_create_multifunction(PCIBus *bus, int devfn, bool multifunction,
 PCIDevice *pci_create_simple_multifunction(PCIBus *bus, int devfn,
                                            bool multifunction,
                                            const char *name);
-PCIDevice *pci_try_create_multifunction(PCIBus *bus, int devfn,
-                                        bool multifunction,
-                                        const char *name);
 PCIDevice *pci_create(PCIBus *bus, int devfn, const char *name);
 PCIDevice *pci_create_simple(PCIBus *bus, int devfn, const char *name);
-PCIDevice *pci_try_create(PCIBus *bus, int devfn, const char *name);
 
 static inline int pci_is_express(const PCIDevice *d)
 {
@@ -574,6 +570,24 @@ static inline void pci_dma_sglist_init(QEMUSGList *qsg, PCIDevice *dev,
                                        int alloc_hint)
 {
     qemu_sglist_init(qsg, alloc_hint);
+}
+
+extern const VMStateDescription vmstate_pci_device;
+
+#define VMSTATE_PCI_DEVICE(_field, _state) {                         \
+    .name       = (stringify(_field)),                               \
+    .size       = sizeof(PCIDevice),                                 \
+    .vmsd       = &vmstate_pci_device,                               \
+    .flags      = VMS_STRUCT,                                        \
+    .offset     = vmstate_offset_value(_state, _field, PCIDevice),   \
+}
+
+#define VMSTATE_PCI_DEVICE_POINTER(_field, _state) {                 \
+    .name       = (stringify(_field)),                               \
+    .size       = sizeof(PCIDevice),                                 \
+    .vmsd       = &vmstate_pci_device,                               \
+    .flags      = VMS_STRUCT|VMS_POINTER,                            \
+    .offset     = vmstate_offset_pointer(_state, _field, PCIDevice), \
 }
 
 #endif

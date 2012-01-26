@@ -1086,16 +1086,11 @@ DeviceState *pc_vga_init(ISABus *isa_bus, PCIBus *pci_bus)
         if (pci_bus) {
             dev = pci_cirrus_vga_init(pci_bus);
         } else {
-            dev = isa_cirrus_vga_init(get_system_memory());
+            dev = &isa_create_simple(isa_bus, "isa-cirrus-vga")->qdev;
         }
     } else if (vmsvga_enabled) {
         if (pci_bus) {
             dev = pci_vmsvga_init(pci_bus);
-            if (!dev) {
-                fprintf(stderr, "Warning: vmware_vga not available,"
-                        " using standard VGA instead\n");
-                dev = pci_vga_init(pci_bus);
-            }
         } else {
             fprintf(stderr, "%s: vmware_vga: no PCI bus\n", __FUNCTION__);
         }
