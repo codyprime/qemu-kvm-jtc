@@ -684,8 +684,7 @@ static void kvm_i8259_set_irq(void *opaque, int irq, int level)
 {
     int pic_ret;
     if (kvm_set_irq(irq, level, &pic_ret)) {
-        if (pic_ret != 0)
-            apic_set_irq_delivered();
+        apic_report_irq_delivered(pic_ret);
         return;
     }
 }

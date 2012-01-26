@@ -13,7 +13,6 @@ int apic_get_interrupt(DeviceState *s);
 void apic_report_irq_delivered(int delivered);
 void apic_reset_irq_delivered(void);
 int apic_get_irq_delivered(void);
-void apic_set_irq_delivered(void);
 void cpu_set_apic_base(DeviceState *s, uint64_t val);
 uint64_t cpu_get_apic_base(DeviceState *s);
 void cpu_set_apic_tpr(DeviceState *s, uint8_t val);
