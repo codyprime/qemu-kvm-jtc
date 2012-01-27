@@ -717,7 +717,7 @@ static void spitz_microdrive_attach(PXA2xxState *cpu, int slot)
 
 static void spitz_wm8750_addr(void *opaque, int line, int level)
 {
-    i2c_slave *wm = (i2c_slave *) opaque;
+    I2CSlave *wm = (I2CSlave *) opaque;
     if (level)
         i2c_set_slave_address(wm, SPITZ_WM_ADDRH);
     else
@@ -1070,12 +1070,20 @@ static const VMStateDescription vmstate_corgi_ssp_regs = {
     }
 };
 
-static SSISlaveInfo corgi_ssp_info = {
-    .qdev.name = "corgi-ssp",
-    .qdev.size = sizeof(CorgiSSPState),
-    .qdev.vmsd = &vmstate_corgi_ssp_regs,
-    .init = corgi_ssp_init,
-    .transfer = corgi_ssp_transfer
+static void corgi_ssp_class_init(ObjectClass *klass, void *data)
+{
+    SSISlaveClass *k = SSI_SLAVE_CLASS(klass);
+
+    k->init = corgi_ssp_init;
+    k->transfer = corgi_ssp_transfer;
+}
+
+
+static DeviceInfo corgi_ssp_info = {
+    .name = "corgi-ssp",
+    .size = sizeof(CorgiSSPState),
+    .vmsd = &vmstate_corgi_ssp_regs,
+    .class_init = corgi_ssp_class_init,
 };
 
 static const VMStateDescription vmstate_spitz_lcdtg_regs = {
@@ -1090,12 +1098,19 @@ static const VMStateDescription vmstate_spitz_lcdtg_regs = {
     }
 };
 
-static SSISlaveInfo spitz_lcdtg_info = {
-    .qdev.name = "spitz-lcdtg",
-    .qdev.size = sizeof(SpitzLCDTG),
-    .qdev.vmsd = &vmstate_spitz_lcdtg_regs,
-    .init = spitz_lcdtg_init,
-    .transfer = spitz_lcdtg_transfer
+static void spitz_lcdtg_class_init(ObjectClass *klass, void *data)
+{
+    SSISlaveClass *k = SSI_SLAVE_CLASS(klass);
+
+    k->init = spitz_lcdtg_init;
+    k->transfer = spitz_lcdtg_transfer;
+}
+
+static DeviceInfo spitz_lcdtg_info = {
+    .name = "spitz-lcdtg",
+    .size = sizeof(SpitzLCDTG),
+    .vmsd = &vmstate_spitz_lcdtg_regs,
+    .class_init = spitz_lcdtg_class_init,
 };
 
 static void spitz_register_devices(void)
