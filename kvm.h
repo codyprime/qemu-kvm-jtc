@@ -54,6 +54,8 @@ int kvm_has_many_ioeventfds(void);
 int kvm_has_pit_state2(void);
 int kvm_has_gsi_routing(void);
 
+int kvm_allows_irq0_override(void);
+
 #ifdef NEED_CPU_H
 int kvm_init_vcpu(CPUState *env);
 
@@ -217,7 +219,6 @@ typedef struct KVMMsiMessage {
     uint32_t data;
 } KVMMsiMessage;
 
-int kvm_allows_irq0_override(void);
 int kvm_get_irq_route_gsi(void);
 
 int kvm_msi_message_add(KVMMsiMessage *msg);
