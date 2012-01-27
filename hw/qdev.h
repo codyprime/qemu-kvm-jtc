@@ -75,6 +75,7 @@ typedef struct DeviceProperty
 typedef struct DeviceClass {
     ObjectClass parent_class;
     DeviceInfo *info;
+    void (*reset)(DeviceState *dev);
 } DeviceClass;
 
 /* This structure should not be accessed directly.  We declare it here
@@ -230,6 +231,11 @@ struct DeviceInfo {
     /* device state */
     const VMStateDescription *vmsd;
 
+    /**
+     * See #TypeInfo::class_init()
+     */
+    void (*class_init)(ObjectClass *klass, void *data);
+
     /* Private to qdev / bus.  */
     qdev_initfn init;
     qdev_event unplug;
@@ -240,6 +246,7 @@ struct DeviceInfo {
 extern DeviceInfo *device_info_list;
 
 void qdev_register(DeviceInfo *info);
+void qdev_register_subclass(DeviceInfo *info, const char *parent);
 
 /* Register device properties.  */
 /* GPIO inputs also double as IRQ sinks.  */
@@ -403,7 +410,7 @@ static inline const char *qdev_fw_name(DeviceState *dev)
         return info->alias;
     }
 
-    return info->name;
+    return object_get_typename(OBJECT(dev));
 }
 
 char *qdev_get_fw_dev_path(DeviceState *dev);
@@ -646,5 +653,12 @@ char *qdev_get_type(DeviceState *dev, Error **errp);
  * support for composition is added.
  */
 void qdev_machine_init(void);
+
+/**
+ * @device_reset
+ *
+ * Reset a single device (by calling the reset method).
+ */
+void device_reset(DeviceState *dev);
 
 #endif
