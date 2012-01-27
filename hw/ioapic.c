@@ -306,13 +306,20 @@ static void ioapic_init(IOAPICCommonState *s, int instance_no)
     ioapics[instance_no] = s;
 }
 
-static IOAPICCommonInfo ioapic_info = {
-    .busdev.qdev.name = "ioapic",
-    .busdev.qdev.size = sizeof(IOAPICCommonState),
-    .busdev.qdev.reset = ioapic_reset,
-    .init = ioapic_init,
-    .pre_save = kvm_ioapic_pre_save,
-    .post_load = kvm_ioapic_post_load,
+static void ioapic_class_init(ObjectClass *klass, void *data)
+{
+    IOAPICCommonClass *k = IOAPIC_COMMON_CLASS(klass);
+
+    k->init = ioapic_init;
+    k->pre_save = kvm_ioapic_pre_save;
+    k->post_load = kvm_ioapic_post_load;
+}
+
+static DeviceInfo ioapic_info = {
+    .name = "ioapic",
+    .size = sizeof(IOAPICCommonState),
+    .reset = ioapic_reset,
+    .class_init = ioapic_class_init,
 };
 
 static void ioapic_register_devices(void)
