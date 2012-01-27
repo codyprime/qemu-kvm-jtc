@@ -414,7 +414,7 @@ static int assigned_dev_register_regions(PCIRegion *io_regions,
                 void *virtbase = pci_dev->v_addrs[i].u.r_virtbase;
                 char name[32];
                 snprintf(name, sizeof(name), "%s.bar%d",
-                         pci_dev->dev.qdev.info->name, i);
+                         qdev_get_info(&pci_dev->dev.qdev)->name, i);
                 memory_region_init_ram_ptr(&pci_dev->v_addrs[i].real_iomem,
                                            name, cur_region->size,
                                            virtbase);
@@ -1756,7 +1756,8 @@ static void assigned_dev_load_option_rom(AssignedDevice *dev)
     }
     fseek(fp, 0, SEEK_SET);
 
-    snprintf(name, sizeof(name), "%s.rom", dev->dev.qdev.info->name);
+    snprintf(name, sizeof(name), "%s.rom",
+             qdev_get_info(&dev->dev.qdev)->name);
     memory_region_init_ram(&dev->dev.rom, name, st.st_size);
     vmstate_register_ram(&dev->dev.rom, &dev->dev.qdev);
     ptr = memory_region_get_ram_ptr(&dev->dev.rom);
