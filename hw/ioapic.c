@@ -335,11 +335,6 @@ static int ioapic_post_load(void *opaque, int version_id)
 {
     IOAPICState *s = opaque;
 
-    if (version_id == 1) {
-        /* set sane value */
-        s->irr = 0;
-    }
-
     if (kvm_enabled() && kvm_irqchip_in_kernel()) {
         kvm_kernel_ioapic_load_from_user(s);
     }
