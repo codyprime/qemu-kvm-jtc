@@ -414,7 +414,7 @@ static int assigned_dev_register_regions(PCIRegion *io_regions,
                 void *virtbase = pci_dev->v_addrs[i].u.r_virtbase;
                 char name[32];
                 snprintf(name, sizeof(name), "%s.bar%d",
-                         pci_dev->dev.qdev.info->name, i);
+                         qdev_get_info(&pci_dev->dev.qdev)->name, i);
                 memory_region_init_ram_ptr(&pci_dev->v_addrs[i].real_iomem,
                                            name, cur_region->size,
                                            virtbase);
@@ -1677,6 +1677,16 @@ static int print_hostaddr(DeviceState *dev, Property *prop, char *dest, size_t l
     return snprintf(dest, len, "%02x:%02x.%x", ptr->bus, ptr->dev, ptr->func);
 }
 
+static void assign_class_init(ObjectClass *klass, void *data)
+{
+    PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
+
+    k->init         = assigned_initfn;
+    k->exit         = assigned_exitfn;
+    k->config_read  = assigned_dev_pci_read_config;
+    k->config_write = assigned_dev_pci_write_config;
+}
+
 PropertyInfo qdev_prop_hostaddr = {
     .name  = "pci-hostaddr",
     .type  = -1,
@@ -1685,17 +1695,13 @@ PropertyInfo qdev_prop_hostaddr = {
     .print = print_hostaddr,
 };
 
-static PCIDeviceInfo assign_info = {
-    .qdev.name    = "pci-assign",
-    .qdev.desc    = "pass through host pci devices to the guest",
-    .qdev.size    = sizeof(AssignedDevice),
-    .qdev.vmsd    = &vmstate_assigned_device,
-    .qdev.reset   = reset_assigned_device,
-    .init         = assigned_initfn,
-    .exit         = assigned_exitfn,
-    .config_read  = assigned_dev_pci_read_config,
-    .config_write = assigned_dev_pci_write_config,
-    .qdev.props   = (Property[]) {
+static DeviceInfo assign_info = {
+    .name      = "pci-assign",
+    .desc      = "pass through host pci devices to the guest",
+    .size      = sizeof(AssignedDevice),
+    .vmsd      = &vmstate_assigned_device,
+    .reset     = reset_assigned_device,
+    .props     = (Property[]) {
         DEFINE_PROP("host", AssignedDevice, host, qdev_prop_hostaddr, PCIHostDevice),
         DEFINE_PROP_BIT("iommu", AssignedDevice, features,
                         ASSIGNED_DEVICE_USE_IOMMU_BIT, true),
@@ -1705,6 +1711,7 @@ static PCIDeviceInfo assign_info = {
         DEFINE_PROP_STRING("configfd", AssignedDevice, configfd_name),
         DEFINE_PROP_END_OF_LIST(),
     },
+    .class_init = assign_class_init,
 };
 
 static void assign_register_devices(void)
@@ -1756,7 +1763,8 @@ static void assigned_dev_load_option_rom(AssignedDevice *dev)
     }
     fseek(fp, 0, SEEK_SET);
 
-    snprintf(name, sizeof(name), "%s.rom", dev->dev.qdev.info->name);
+    snprintf(name, sizeof(name), "%s.rom",
+             qdev_get_info(&dev->dev.qdev)->name);
     memory_region_init_ram(&dev->dev.rom, name, st.st_size);
     vmstate_register_ram(&dev->dev.rom, &dev->dev.qdev);
     ptr = memory_region_get_ram_ptr(&dev->dev.rom);

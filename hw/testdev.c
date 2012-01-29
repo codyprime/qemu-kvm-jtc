@@ -9,6 +9,10 @@ struct testdev {
     CharDriverState *chr;
 };
 
+#define TYPE_TESTDEV "testdev"
+#define TESTDEV(obj) \
+     OBJECT_CHECK(struct testdev, (obj), TYPE_TESTDEV)
+
 static void test_device_serial_write(void *opaque, uint32_t addr, uint32_t data)
 {
     struct testdev *dev = opaque;
@@ -121,11 +125,18 @@ static int init_test_device(ISADevice *isa)
     return 0;
 }
 
-static ISADeviceInfo testdev_info = {
-    .qdev.name  = "testdev",
-    .qdev.size  = sizeof(struct testdev),
-    .init       = init_test_device,
-    .qdev.props = (Property[]) {
+static void testdev_class_init(ObjectClass *klass, void *data)
+{
+    ISADeviceClass *k = ISA_DEVICE_CLASS(klass);
+
+    k->init = init_test_device;
+}
+
+static DeviceInfo testdev_info = {
+    .name       = "testdev",
+    .size       = sizeof(struct testdev),
+    .class_init = testdev_class_init,
+    .props      = (Property[]) {
         DEFINE_PROP_CHR("chardev", struct testdev, chr),
         DEFINE_PROP_END_OF_LIST(),
     },

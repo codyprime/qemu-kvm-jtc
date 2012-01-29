@@ -238,16 +238,6 @@ int kvm_reinject_control(KVMState *s, int pit_reinject)
     return -ENOSYS;
 }
 
-int kvm_has_gsi_routing(void)
-{
-    int r = 0;
-
-#ifdef KVM_CAP_IRQ_ROUTING
-    r = kvm_check_extension(kvm_state, KVM_CAP_IRQ_ROUTING);
-#endif
-    return r;
-}
-
 int kvm_clear_gsi_routes(void)
 {
 #ifdef KVM_CAP_IRQ_ROUTING
