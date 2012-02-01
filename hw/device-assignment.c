@@ -627,8 +627,11 @@ static void free_dev_irq_entries(AssignedDevice *dev)
 {
     int i;
 
-    for (i = 0; i < dev->irq_entries_nr; i++)
-        kvm_del_routing_entry(&dev->entry[i]);
+    for (i = 0; i < dev->irq_entries_nr; i++) {
+        if (dev->entry[i].type) {
+            kvm_del_routing_entry(&dev->entry[i]);
+        }
+    }
     g_free(dev->entry);
     dev->entry = NULL;
     dev->irq_entries_nr = 0;
@@ -976,7 +979,7 @@ static int assigned_dev_update_msix_mmio(PCIDevice *pci_dev)
         if (entry->data == 0) {
             continue;
         }
-        entries_nr ++;
+        entries_nr++;
     }
 
     if (entries_nr == 0) {
@@ -993,15 +996,13 @@ static int assigned_dev_update_msix_mmio(PCIDevice *pci_dev)
     }
 
     free_dev_irq_entries(adev);
-    adev->irq_entries_nr = entries_nr;
-    adev->entry = g_malloc0(entries_nr * sizeof(*(adev->entry)));
+
+    adev->irq_entries_nr = adev->msix_max;
+    adev->entry = g_malloc0(adev->msix_max * sizeof(*(adev->entry)));
 
     msix_entry.assigned_dev_id = msix_nr.assigned_dev_id;
-    entries_nr = 0;
     entry = adev->msix_table;
     for (i = 0; i < adev->msix_max; i++, entry++) {
-        if (entries_nr >= msix_nr.entry_nr)
-            break;
         if (entry->data == 0) {
             continue;
         }
@@ -1010,26 +1011,25 @@ static int assigned_dev_update_msix_mmio(PCIDevice *pci_dev)
         if (r < 0)
             return r;
 
-        adev->entry[entries_nr].gsi = r;
-        adev->entry[entries_nr].type = KVM_IRQ_ROUTING_MSI;
-        adev->entry[entries_nr].flags = 0;
-        adev->entry[entries_nr].u.msi.address_lo = entry->addr_lo;
-        adev->entry[entries_nr].u.msi.address_hi = entry->addr_hi;
-        adev->entry[entries_nr].u.msi.data = entry->data;
-        DEBUG("MSI-X data 0x%x, MSI-X addr_lo 0x%x\n!",
-              entry->data, entry->addr_lo);
-	kvm_add_routing_entry(&adev->entry[entries_nr]);
+        adev->entry[i].gsi = r;
+        adev->entry[i].type = KVM_IRQ_ROUTING_MSI;
+        adev->entry[i].flags = 0;
+        adev->entry[i].u.msi.address_lo = entry->addr_lo;
+        adev->entry[i].u.msi.address_hi = entry->addr_hi;
+        adev->entry[i].u.msi.data = entry->data;
 
-        msix_entry.gsi = adev->entry[entries_nr].gsi;
+        DEBUG("MSI-X vector %d, gsi %d, addr %08x_%08x, data %08x\n", i,
+              r, entry->addr_hi, entry->addr_lo, entry->data);
+
+        kvm_add_routing_entry(&adev->entry[i]);
+
+        msix_entry.gsi = adev->entry[i].gsi;
         msix_entry.entry = i;
         r = kvm_assign_set_msix_entry(kvm_state, &msix_entry);
         if (r) {
             fprintf(stderr, "fail to set MSI-X entry! %s\n", strerror(-r));
             break;
         }
-        DEBUG("MSI-X entry gsi 0x%x, entry %d\n!",
-                msix_entry.gsi, msix_entry.entry);
-        entries_nr ++;
     }
 
     if (r == 0 && kvm_commit_irq_routes() < 0) {
