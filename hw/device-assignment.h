@@ -80,6 +80,13 @@ typedef struct {
 #define ASSIGNED_DEVICE_USE_IOMMU_MASK	(1 << ASSIGNED_DEVICE_USE_IOMMU_BIT)
 #define ASSIGNED_DEVICE_PREFER_MSI_MASK	(1 << ASSIGNED_DEVICE_PREFER_MSI_BIT)
 
+typedef struct {
+    uint32_t addr_lo;
+    uint32_t addr_hi;
+    uint32_t data;
+    uint32_t ctrl;
+} MSIXTableEntry;
+
 typedef struct AssignedDevice {
     PCIDevice dev;
     PCIHostDevice host;
@@ -108,7 +115,7 @@ typedef struct AssignedDevice {
     uint8_t emulate_config_write[PCI_CONFIG_SPACE_SIZE];
     int irq_entries_nr;
     struct kvm_irq_routing_entry *entry;
-    void *msix_table_page;
+    MSIXTableEntry *msix_table;
     target_phys_addr_t msix_table_addr;
     MemoryRegion mmio;
     char *configfd_name;
