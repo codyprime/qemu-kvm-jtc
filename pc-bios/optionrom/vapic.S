@@ -1,3 +1,14 @@
+#
+# Local APIC acceleration for Windows XP and related guests
+#
+# Copyright 2011 Red Hat, Inc. and/or its affiliates
+#
+# Author: Avi Kivity <avi@redhat.com>
+#
+# This work is licensed under the terms of the GNU GPL, version 2, or (at your
+# option) any later version.  See the COPYING file in the top-level directory.
+#
+
 	.text 0
 	.code16
 .global _start
