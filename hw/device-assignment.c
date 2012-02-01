@@ -1468,7 +1468,7 @@ static void msix_reset(AssignedDevice *dev)
         return;
     }
 
-    memset(dev->msix_table, 0, 0x1000);
+    memset(dev->msix_table, 0, MSIX_PAGE_SIZE);
 
     for (i = 0, entry = dev->msix_table; i < dev->msix_max; i++, entry++) {
         entry->ctrl = cpu_to_le32(0x1); /* Masked */
@@ -1477,7 +1477,7 @@ static void msix_reset(AssignedDevice *dev)
 
 static int assigned_dev_register_msix_mmio(AssignedDevice *dev)
 {
-    dev->msix_table = mmap(NULL, 0x1000, PROT_READ|PROT_WRITE,
+    dev->msix_table = mmap(NULL, MSIX_PAGE_SIZE, PROT_READ|PROT_WRITE,
                            MAP_ANONYMOUS|MAP_PRIVATE, 0, 0);
     if (dev->msix_table == MAP_FAILED) {
         fprintf(stderr, "fail allocate msix_table! %s\n", strerror(errno));
@@ -1499,7 +1499,7 @@ static void assigned_dev_unregister_msix_mmio(AssignedDevice *dev)
 
     memory_region_destroy(&dev->mmio);
 
-    if (munmap(dev->msix_table, 0x1000) == -1) {
+    if (munmap(dev->msix_table, MSIX_PAGE_SIZE) == -1) {
         fprintf(stderr, "error unmapping msix_table! %s\n",
                 strerror(errno));
     }
