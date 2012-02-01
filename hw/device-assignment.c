@@ -964,6 +964,11 @@ static void assigned_dev_update_msi(PCIDevice *pci_dev)
     }
 }
 
+static bool msix_masked(MSIXTableEntry *entry)
+{
+    return (entry->ctrl & cpu_to_le32(0x1)) != 0;
+}
+
 static int assigned_dev_update_msix_mmio(PCIDevice *pci_dev)
 {
     AssignedDevice *adev = DO_UPCAST(AssignedDevice, dev, pci_dev);
@@ -975,17 +980,19 @@ static int assigned_dev_update_msix_mmio(PCIDevice *pci_dev)
 
     /* Get the usable entry number for allocating */
     for (i = 0; i < adev->msix_max; i++, entry++) {
-        /* Ignore unused entry even it's unmasked */
-        if (entry->data == 0) {
+        if (msix_masked(entry)) {
             continue;
         }
         entries_nr++;
     }
 
-    if (entries_nr == 0) {
-        fprintf(stderr, "MSI-X entry number is zero!\n");
-        return -EINVAL;
+    DEBUG("MSI-X entries: %d\n", entries_nr);
+
+    /* It's valid to enable MSI-X with all entries masked */
+    if (!entries_nr) {
+        return 0;
     }
+
     msix_nr.assigned_dev_id = calc_assigned_dev_id(adev);
     msix_nr.entry_nr = entries_nr;
     r = kvm_assign_set_msix_nr(kvm_state, &msix_nr);
@@ -1003,7 +1010,7 @@ static int assigned_dev_update_msix_mmio(PCIDevice *pci_dev)
     msix_entry.assigned_dev_id = msix_nr.assigned_dev_id;
     entry = adev->msix_table;
     for (i = 0; i < adev->msix_max; i++, entry++) {
-        if (entry->data == 0) {
+        if (msix_masked(entry)) {
             continue;
         }
 
@@ -1075,9 +1082,12 @@ static void assigned_dev_update_msix(PCIDevice *pci_dev)
             perror("assigned_dev_update_msix_mmio");
             return;
         }
-        if (kvm_assign_irq(kvm_state, &assigned_irq_data) < 0) {
-            perror("assigned_dev_enable_msix: assign irq");
-            return;
+
+        if (assigned_dev->irq_entries_nr) {
+            if (kvm_assign_irq(kvm_state, &assigned_irq_data) < 0) {
+                perror("assigned_dev_enable_msix: assign irq");
+                return;
+            }
         }
         assigned_dev->girq = -1;
         assigned_dev->irq_requested_type = assigned_irq_data.flags;
@@ -1438,11 +1448,71 @@ static void msix_mmio_write(void *opaque, target_phys_addr_t addr,
                             uint64_t val, unsigned size)
 {
     AssignedDevice *adev = opaque;
+    PCIDevice *pdev = &adev->dev;
+    uint16_t ctrl;
+    MSIXTableEntry orig;
+    int i = addr >> 4;
 
-    DEBUG("write to MSI-X entry table mmio offset 0x%lx, val 0x%lx\n",
-          addr, val);
+    if (i >= adev->msix_max) {
+        return; /* Drop write */
+    }
+
+    ctrl = pci_get_word(pdev->config + pdev->msix_cap + PCI_MSIX_FLAGS);
+
+    DEBUG("write to MSI-X table offset 0x%lx, val 0x%lx\n", addr, val);
+
+    if (ctrl & PCI_MSIX_FLAGS_ENABLE) {
+        orig = adev->msix_table[i];
+    }
 
     memcpy((void *)((uint8_t *)adev->msix_table + addr), &val, size);
+
+    if (ctrl & PCI_MSIX_FLAGS_ENABLE) {
+        MSIXTableEntry *entry = &adev->msix_table[i];
+
+        if (!msix_masked(&orig) && msix_masked(entry)) {
+            /*
+             * Vector masked, disable it
+             *
+             * XXX It's not clear if we can or should actually attempt
+             * to mask or disable the interrupt.  KVM doesn't have
+             * support for pending bits and kvm_assign_set_msix_entry
+             * doesn't modify the device hardware mask.  Interrupts
+             * while masked are simply not injected to the guest, so
+             * are lost.  Can we get away with always injecting an
+             * interrupt on unmask?
+             */
+        } else if (msix_masked(&orig) && !msix_masked(entry)) {
+            /* Vector unmasked */
+            if (i >= adev->irq_entries_nr || !adev->entry[i].type) {
+                /* Previously unassigned vector, start from scratch */
+                assigned_dev_update_msix(pdev);
+                return;
+            } else {
+                /* Update an existing, previously masked vector */
+                struct kvm_irq_routing_entry orig = adev->entry[i];
+                int ret;
+
+                adev->entry[i].u.msi.address_lo = entry->addr_lo;
+                adev->entry[i].u.msi.address_hi = entry->addr_hi;
+                adev->entry[i].u.msi.data = entry->data;
+
+                ret = kvm_update_routing_entry(&orig, &adev->entry[i]);
+                if (ret) {
+                    fprintf(stderr,
+                            "Error updating irq routing entry (%d)\n", ret);
+                    return;
+                }
+
+                ret = kvm_commit_irq_routes();
+                if (ret) {
+                    fprintf(stderr,
+                            "Error committing irq routes (%d)\n", ret);
+                    return;
+                }
+            }
+        }
+    }
 }
 
 static const MemoryRegionOps msix_mmio_ops = {
