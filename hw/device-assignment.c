@@ -1459,6 +1459,22 @@ static const MemoryRegionOps msix_mmio_ops = {
     },
 };
 
+static void msix_reset(AssignedDevice *dev)
+{
+    MSIXTableEntry *entry;
+    int i;
+
+    if (!dev->msix_table) {
+        return;
+    }
+
+    memset(dev->msix_table, 0, 0x1000);
+
+    for (i = 0, entry = dev->msix_table; i < dev->msix_max; i++, entry++) {
+        entry->ctrl = cpu_to_le32(0x1); /* Masked */
+    }
+}
+
 static int assigned_dev_register_msix_mmio(AssignedDevice *dev)
 {
     dev->msix_table = mmap(NULL, 0x1000, PROT_READ|PROT_WRITE,
@@ -1467,7 +1483,9 @@ static int assigned_dev_register_msix_mmio(AssignedDevice *dev)
         fprintf(stderr, "fail allocate msix_table! %s\n", strerror(errno));
         return -EFAULT;
     }
-    memset(dev->msix_table, 0, 0x1000);
+
+    msix_reset(dev);
+
     memory_region_init_io(&dev->mmio, &msix_mmio_ops, dev,
                           "assigned-dev-msix", MSIX_PAGE_SIZE);
     return 0;
