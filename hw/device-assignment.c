@@ -74,7 +74,7 @@ static uint64_t assigned_dev_ioport_rw(AssignedDevRegion *dev_region,
 
     if (fd >= 0) {
         if (data) {
-            DEBUG("pwrite data=%x, size=%d, e_phys=%x, addr=%x\n",
+            DEBUG("pwrite data=%lx, size=%d, e_phys=%lx, addr=%lx\n",
                   *data, size, addr, addr);
             if (pwrite(fd, data, size, addr) != size) {
                 fprintf(stderr, "%s - pwrite failed %s\n",
@@ -86,14 +86,14 @@ static uint64_t assigned_dev_ioport_rw(AssignedDevRegion *dev_region,
                         __func__, strerror(errno));
                 val = (1UL << (size * 8)) - 1;
             }
-            DEBUG("pread val=%x, size=%d, e_phys=%x, addr=%x\n",
+            DEBUG("pread val=%lx, size=%d, e_phys=%lx, addr=%lx\n",
                   val, size, addr, addr);
         }
     } else {
         uint32_t port = addr + dev_region->u.r_baseport;
 
         if (data) {
-            DEBUG("out data=%x, size=%d, e_phys=%x, host=%x\n",
+            DEBUG("out data=%lx, size=%d, e_phys=%lx, host=%x\n",
                   *data, size, addr, port);
             switch (size) {
                 case 1:
@@ -118,7 +118,7 @@ static uint64_t assigned_dev_ioport_rw(AssignedDevRegion *dev_region,
                     val = inl(port);
                     break;
             }
-            DEBUG("in data=%x, size=%d, e_phys=%x, host=%x\n",
+            DEBUG("in data=%lx, size=%d, e_phys=%lx, host=%x\n",
                   val, size, addr, port);
         }
     }
