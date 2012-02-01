@@ -1430,62 +1430,40 @@ static int assigned_device_pci_cap_init(PCIDevice *pci_dev)
     return 0;
 }
 
-static uint32_t msix_mmio_readl(void *opaque, target_phys_addr_t addr)
+static uint64_t msix_mmio_read(void *opaque, target_phys_addr_t addr,
+                               unsigned size)
 {
     AssignedDevice *adev = opaque;
-    unsigned int offset = addr & 0xfff;
-    void *page = adev->msix_table_page;
-    uint32_t val = 0;
+    uint64_t val;
 
-    memcpy(&val, (void *)((char *)page + offset), 4);
+    memcpy(&val, (void *)((uint8_t *)adev->msix_table_page + addr), size);
 
     return val;
 }
 
-static uint32_t msix_mmio_readb(void *opaque, target_phys_addr_t addr)
-{
-    return ((msix_mmio_readl(opaque, addr & ~3)) >>
-            (8 * (addr & 3))) & 0xff;
-}
-
-static uint32_t msix_mmio_readw(void *opaque, target_phys_addr_t addr)
-{
-    return ((msix_mmio_readl(opaque, addr & ~3)) >>
-            (8 * (addr & 3))) & 0xffff;
-}
-
-static void msix_mmio_writel(void *opaque,
-                             target_phys_addr_t addr, uint32_t val)
+static void msix_mmio_write(void *opaque, target_phys_addr_t addr,
+                            uint64_t val, unsigned size)
 {
     AssignedDevice *adev = opaque;
-    unsigned int offset = addr & 0xfff;
-    void *page = adev->msix_table_page;
 
-    DEBUG("write to MSI-X entry table mmio offset 0x%lx, val 0x%x\n",
-		    addr, val);
-    memcpy((void *)((char *)page + offset), &val, 4);
-}
+    DEBUG("write to MSI-X entry table mmio offset 0x%lx, val 0x%lx\n",
+          addr, val);
 
-static void msix_mmio_writew(void *opaque,
-                             target_phys_addr_t addr, uint32_t val)
-{
-    msix_mmio_writel(opaque, addr & ~3,
-                     (val & 0xffff) << (8*(addr & 3)));
-}
-
-static void msix_mmio_writeb(void *opaque,
-                             target_phys_addr_t addr, uint32_t val)
-{
-    msix_mmio_writel(opaque, addr & ~3,
-                     (val & 0xff) << (8*(addr & 3)));
+    memcpy((void *)((uint8_t *)adev->msix_table_page + addr), &val, size);
 }
 
 static const MemoryRegionOps msix_mmio_ops = {
-    .old_mmio = {
-        .read = { msix_mmio_readb, msix_mmio_readw, msix_mmio_readl, },
-        .write = { msix_mmio_writeb, msix_mmio_writew, msix_mmio_writel, },
-    },
+    .read = msix_mmio_read,
+    .write = msix_mmio_write,
     .endianness = DEVICE_NATIVE_ENDIAN,
+    .valid = {
+        .min_access_size = 4,
+        .max_access_size = 8,
+    },
+    .impl = {
+        .min_access_size = 4,
+        .max_access_size = 8,
+    },
 };
 
 static int assigned_dev_register_msix_mmio(AssignedDevice *dev)
