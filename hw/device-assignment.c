@@ -964,20 +964,14 @@ static void assigned_dev_update_msi(PCIDevice *pci_dev)
 static int assigned_dev_update_msix_mmio(PCIDevice *pci_dev)
 {
     AssignedDevice *adev = DO_UPCAST(AssignedDevice, dev, pci_dev);
-    uint16_t entries_nr = 0, entries_max_nr;
-    int pos = 0, i, r = 0;
+    uint16_t entries_nr = 0;
+    int i, r = 0;
     struct kvm_assigned_msix_nr msix_nr;
     struct kvm_assigned_msix_entry msix_entry;
     MSIXTableEntry *entry = adev->msix_table;
 
-    pos = pci_find_capability(pci_dev, PCI_CAP_ID_MSIX);
-
-    entries_max_nr = *(uint16_t *)(pci_dev->config + pos + 2);
-    entries_max_nr &= PCI_MSIX_FLAGS_QSIZE;
-    entries_max_nr += 1;
-
     /* Get the usable entry number for allocating */
-    for (i = 0; i < entries_max_nr; i++, entry++) {
+    for (i = 0; i < adev->msix_max; i++, entry++) {
         /* Ignore unused entry even it's unmasked */
         if (entry->data == 0) {
             continue;
@@ -1005,7 +999,7 @@ static int assigned_dev_update_msix_mmio(PCIDevice *pci_dev)
     msix_entry.assigned_dev_id = msix_nr.assigned_dev_id;
     entries_nr = 0;
     entry = adev->msix_table;
-    for (i = 0; i < entries_max_nr; i++, entry++) {
+    for (i = 0; i < adev->msix_max; i++, entry++) {
         if (entries_nr >= msix_nr.entry_nr)
             break;
         if (entry->data == 0) {
@@ -1218,6 +1212,9 @@ static int assigned_device_pci_cap_init(PCIDevice *pci_dev)
         bar_nr = msix_table_entry & PCI_MSIX_FLAGS_BIRMASK;
         msix_table_entry &= ~PCI_MSIX_FLAGS_BIRMASK;
         dev->msix_table_addr = pci_region[bar_nr].base_addr + msix_table_entry;
+        dev->msix_max = pci_get_word(pci_dev->config + pos + PCI_MSIX_FLAGS);
+        dev->msix_max &= PCI_MSIX_FLAGS_QSIZE;
+        dev->msix_max += 1;
     }
 
     /* Minimal PM support, nothing writable, device appears to NAK changes */

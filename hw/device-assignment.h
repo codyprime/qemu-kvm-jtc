@@ -117,6 +117,7 @@ typedef struct AssignedDevice {
     struct kvm_irq_routing_entry *entry;
     MSIXTableEntry *msix_table;
     target_phys_addr_t msix_table_addr;
+    uint16_t msix_max;
     MemoryRegion mmio;
     char *configfd_name;
     int32_t bootindex;
