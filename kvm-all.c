@@ -973,8 +973,6 @@ int kvm_init(void)
     s->pit_state2 = kvm_check_extension(s, KVM_CAP_PIT_STATE2);
 #endif
 
-    s->pit_in_kernel = kvm_pit;
-
     ret = kvm_arch_init(s);
     if (ret < 0) {
         goto err;

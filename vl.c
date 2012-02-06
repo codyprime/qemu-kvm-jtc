@@ -2167,7 +2167,6 @@ static void free_and_trace(gpointer mem)
 
 #ifdef CONFIG_KVM_OPTIONS
 int kvm_irqchip = 1;
-int kvm_pit = 1;
 int kvm_pit_reinject = 1;
 #endif
 
@@ -2883,11 +2882,11 @@ int main(int argc, char **argv, char **envp)
 #ifdef CONFIG_KVM_OPTIONS
 	    case QEMU_OPTION_no_kvm_irqchip: {
 		kvm_irqchip = 0;
-		kvm_pit = 0;
 		break;
 	    }
 	    case QEMU_OPTION_no_kvm_pit: {
-		kvm_pit = 0;
+                fprintf(stderr, "Warning: KVM PIT can no longer be disabled "
+                                "separately.\n");
 		break;
 	    }
             case QEMU_OPTION_no_kvm_pit_reinjection: {

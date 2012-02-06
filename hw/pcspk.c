@@ -57,7 +57,7 @@ static void kvm_get_pit_ch2(ISADevice *dev,
     struct PITState *pit = DO_UPCAST(struct PITState, dev, dev);
     struct kvm_pit_state pit_state;
 
-    if (kvm_enabled() && kvm_pit_in_kernel()) {
+    if (kvm_enabled() && kvm_irqchip_in_kernel()) {
         kvm_get_pit(kvm_state, &pit_state);
         pit->channels[2].mode = pit_state.channels[2].mode;
         pit->channels[2].count = pit_state.channels[2].count;
@@ -74,7 +74,7 @@ static void kvm_set_pit_ch2(ISADevice *dev,
 {
     struct PITState *pit = DO_UPCAST(struct PITState, dev, dev);
 
-    if (kvm_enabled() && kvm_pit_in_kernel()) {
+    if (kvm_enabled() && kvm_irqchip_in_kernel()) {
         inkernel_state->channels[2].mode = pit->channels[2].mode;
         inkernel_state->channels[2].count = pit->channels[2].count;
         inkernel_state->channels[2].count_load_time =

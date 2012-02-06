@@ -475,7 +475,7 @@ void hpet_pit_disable(void)
 {
     PITChannelState *s = &pit_state.channels[0];
 
-    if (kvm_enabled() && kvm_pit_in_kernel()) {
+    if (kvm_enabled() && kvm_irqchip_in_kernel()) {
         if (kvm_has_pit_state2()) {
             kvm_hpet_disable_kpit();
         } else {
@@ -499,7 +499,7 @@ void hpet_pit_enable(void)
     PITState *pit = &pit_state;
     PITChannelState *s = &pit->channels[0];
 
-    if (kvm_enabled() && kvm_pit_in_kernel()) {
+    if (kvm_enabled() && kvm_irqchip_in_kernel()) {
         if (kvm_has_pit_state2()) {
             kvm_hpet_enable_kpit();
         } else {
@@ -529,7 +529,7 @@ static int pit_initfn(ISADevice *dev)
     PITChannelState *s;
 
 #ifdef CONFIG_KVM_PIT
-    if (kvm_enabled() && kvm_pit_in_kernel())
+    if (kvm_enabled() && kvm_irqchip_in_kernel())
         kvm_pit_init(pit);
     else {
 #endif

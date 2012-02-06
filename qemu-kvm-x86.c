@@ -27,7 +27,7 @@ static int kvm_create_pit(KVMState *s)
 {
     int r;
 
-    if (kvm_pit) {
+    if (kvm_irqchip) {
         r = kvm_vm_ioctl(s, KVM_CREATE_PIT);
         if (r < 0) {
             fprintf(stderr, "Create kernel PIC irqchip failed\n");
@@ -97,7 +97,7 @@ int kvm_set_lapic(CPUState *env, struct kvm_lapic_state *s)
 
 int kvm_get_pit(KVMState *s, struct kvm_pit_state *pit_state)
 {
-    if (!kvm_pit_in_kernel()) {
+    if (!kvm_irqchip_in_kernel()) {
         return 0;
     }
     return kvm_vm_ioctl(s, KVM_GET_PIT, pit_state);
@@ -105,7 +105,7 @@ int kvm_get_pit(KVMState *s, struct kvm_pit_state *pit_state)
 
 int kvm_set_pit(KVMState *s, struct kvm_pit_state *pit_state)
 {
-    if (!kvm_pit_in_kernel()) {
+    if (!kvm_irqchip_in_kernel()) {
         return 0;
     }
     return kvm_vm_ioctl(s, KVM_SET_PIT, pit_state);
@@ -113,7 +113,7 @@ int kvm_set_pit(KVMState *s, struct kvm_pit_state *pit_state)
 
 int kvm_get_pit2(KVMState *s, struct kvm_pit_state2 *ps2)
 {
-    if (!kvm_pit_in_kernel()) {
+    if (!kvm_irqchip_in_kernel()) {
         return 0;
     }
     return kvm_vm_ioctl(s, KVM_GET_PIT2, ps2);
@@ -121,7 +121,7 @@ int kvm_get_pit2(KVMState *s, struct kvm_pit_state2 *ps2)
 
 int kvm_set_pit2(KVMState *s, struct kvm_pit_state2 *ps2)
 {
-    if (!kvm_pit_in_kernel()) {
+    if (!kvm_irqchip_in_kernel()) {
         return 0;
     }
     return kvm_vm_ioctl(s, KVM_SET_PIT2, ps2);
