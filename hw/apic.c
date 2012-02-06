@@ -270,6 +270,9 @@ static void apic_set_base(APICCommonState *s, uint64_t val)
 static void apic_set_tpr(APICCommonState *s, uint8_t val)
 {
     s->tpr = (val & 0x0f) << 4;
+    if (kvm_enabled() && kvm_irqchip_in_kernel()) {
+        return;
+    }
     apic_update_irq(s);
 }
 
@@ -878,6 +881,9 @@ void kvm_save_lapic(CPUState *env)
 
 static void apic_post_load(APICCommonState *s)
 {
+    if (kvm_enabled() && kvm_irqchip_in_kernel()) {
+        return;
+    }
     if (s->timer_expiry != -1) {
         qemu_mod_timer(s->timer, s->timer_expiry);
     } else {
