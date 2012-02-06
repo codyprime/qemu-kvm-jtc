@@ -90,6 +90,7 @@ static void kvm_piix3_setup_irq_routing(bool pci_enabled)
     }
 #endif /* CONFIG_KVM */
 }
+#endif
 
 static void kvm_piix3_gsi_handler(void *opaque, int n, int level)
 {
@@ -102,7 +103,6 @@ static void kvm_piix3_gsi_handler(void *opaque, int n, int level)
         qemu_set_irq(s->ioapic_irq[n], level);
     }
 }
-#endif
 
 static void ioapic_init(GSIState *gsi_state)
 {
@@ -194,14 +194,13 @@ static void pc_init1(MemoryRegion *system_memory,
     }
 
     gsi_state = g_malloc0(sizeof(*gsi_state));
-#ifdef UNUSED_UPSTREAM_KVM
     if (kvm_enabled() && kvm_irqchip_in_kernel()) {
+#ifdef UNUSED_UPSTREAM_KVM
         kvm_piix3_setup_irq_routing(pci_enabled);
+#endif
         gsi = qemu_allocate_irqs(kvm_piix3_gsi_handler, gsi_state,
                                  GSI_NUM_PINS);
-    } else
-#endif
-    {
+    } else {
         gsi = qemu_allocate_irqs(gsi_handler, gsi_state, GSI_NUM_PINS);
     }
 
@@ -221,6 +220,7 @@ static void pc_init1(MemoryRegion *system_memory,
         isa_bus = isa_bus_new(NULL, system_io);
         no_hpet = 1;
     }
+    isa_bus_irqs(isa_bus, gsi);
 
 #ifdef UNUSED_UPSTREAM_KVM
     if (kvm_enabled() && kvm_irqchip_in_kernel()) {
@@ -240,13 +240,6 @@ static void pc_init1(MemoryRegion *system_memory,
     if (pci_enabled) {
         ioapic_init(gsi_state);
     }
-    if (!(kvm_enabled() && kvm_irqchip_in_kernel())) {
-        gsi = qemu_allocate_irqs(gsi_handler, gsi_state, GSI_NUM_PINS);
-    } else {
-        gsi = i8259;
-    }
-
-    isa_bus_irqs(isa_bus, gsi);
 
     pc_register_ferr_irq(gsi[13]);
 
