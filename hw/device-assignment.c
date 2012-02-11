@@ -1737,8 +1737,6 @@ static int print_hostaddr(DeviceState *dev, Property *prop, char *dest, size_t l
 
 PropertyInfo qdev_prop_hostaddr = {
     .name  = "pci-hostaddr",
-    .type  = -1,
-    .size  = sizeof(PCIHostDevice),
     .parse = parse_hostaddr,
     .print = print_hostaddr,
 };

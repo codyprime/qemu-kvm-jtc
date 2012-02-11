@@ -354,7 +354,6 @@ static void s390_virtio_net_class_init(ObjectClass *klass, void *data)
 
     k->init = s390_virtio_net_init;
     dc->props = s390_virtio_net_properties;
-    dc->alias = "virtio-net";
 }
 
 static TypeInfo s390_virtio_net = {
@@ -377,7 +376,6 @@ static void s390_virtio_blk_class_init(ObjectClass *klass, void *data)
 
     k->init = s390_virtio_blk_init;
     dc->props = s390_virtio_blk_properties;
-    dc->alias = "virtio-blk";
 }
 
 static TypeInfo s390_virtio_blk = {
@@ -400,7 +398,6 @@ static void s390_virtio_serial_class_init(ObjectClass *klass, void *data)
 
     k->init = s390_virtio_serial_init;
     dc->props = s390_virtio_serial_properties;
-    dc->alias = "virtio-serial";
 }
 
 static TypeInfo s390_virtio_serial = {
@@ -410,7 +407,7 @@ static TypeInfo s390_virtio_serial = {
     .class_init    = s390_virtio_serial_class_init,
 };
 
-static int s390_virtio_busdev_init(DeviceState *dev, DeviceInfo *info)
+static int s390_virtio_busdev_init(DeviceState *dev)
 {
     VirtIOS390Device *_dev = (VirtIOS390Device *)dev;
     VirtIOS390DeviceClass *_info = VIRTIO_S390_DEVICE_GET_CLASS(dev);
