@@ -1735,16 +1735,6 @@ static int print_hostaddr(DeviceState *dev, Property *prop, char *dest, size_t l
     return snprintf(dest, len, "%02x:%02x.%x", ptr->bus, ptr->dev, ptr->func);
 }
 
-static void assign_class_init(ObjectClass *klass, void *data)
-{
-    PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
-
-    k->init         = assigned_initfn;
-    k->exit         = assigned_exitfn;
-    k->config_read  = assigned_dev_pci_read_config;
-    k->config_write = assigned_dev_pci_write_config;
-}
-
 PropertyInfo qdev_prop_hostaddr = {
     .name  = "pci-hostaddr",
     .type  = -1,
@@ -1753,28 +1743,42 @@ PropertyInfo qdev_prop_hostaddr = {
     .print = print_hostaddr,
 };
 
-static DeviceInfo assign_info = {
-    .name      = "pci-assign",
-    .desc      = "pass through host pci devices to the guest",
-    .size      = sizeof(AssignedDevice),
-    .vmsd      = &vmstate_assigned_device,
-    .reset     = reset_assigned_device,
-    .props     = (Property[]) {
-        DEFINE_PROP("host", AssignedDevice, host, qdev_prop_hostaddr, PCIHostDevice),
-        DEFINE_PROP_BIT("iommu", AssignedDevice, features,
-                        ASSIGNED_DEVICE_USE_IOMMU_BIT, true),
-        DEFINE_PROP_BIT("prefer_msi", AssignedDevice, features,
-                        ASSIGNED_DEVICE_PREFER_MSI_BIT, true),
-        DEFINE_PROP_INT32("bootindex", AssignedDevice, bootindex, -1),
-        DEFINE_PROP_STRING("configfd", AssignedDevice, configfd_name),
-        DEFINE_PROP_END_OF_LIST(),
-    },
-    .class_init = assign_class_init,
+static Property da_properties[] =
+{
+    DEFINE_PROP("host", AssignedDevice, host, qdev_prop_hostaddr, PCIHostDevice),
+    DEFINE_PROP_BIT("iommu", AssignedDevice, features,
+                   ASSIGNED_DEVICE_USE_IOMMU_BIT, true),
+    DEFINE_PROP_BIT("prefer_msi", AssignedDevice, features,
+                   ASSIGNED_DEVICE_PREFER_MSI_BIT, true),
+    DEFINE_PROP_INT32("bootindex", AssignedDevice, bootindex, -1),
+    DEFINE_PROP_STRING("configfd", AssignedDevice, configfd_name),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
+static void assign_class_init(ObjectClass *klass, void *data)
+{
+    PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
+    DeviceClass *dc = DEVICE_CLASS(klass);
+
+    k->init         = assigned_initfn;
+    k->exit         = assigned_exitfn;
+    k->config_read  = assigned_dev_pci_read_config;
+    k->config_write = assigned_dev_pci_write_config;
+    dc->props       = da_properties;
+    dc->vmsd        = &vmstate_assigned_device;
+    dc->reset       = reset_assigned_device;
+}
+
+static TypeInfo assign_info = {
+    .name               = "pci-assign",
+    .parent             = TYPE_PCI_DEVICE,
+    .instance_size      = sizeof(AssignedDevice),
+    .class_init         = assign_class_init,
 };
 
 static void assign_register_devices(void)
 {
-    pci_qdev_register(&assign_info);
+    type_register_static(&assign_info);
 }
 
 device_init(assign_register_devices)

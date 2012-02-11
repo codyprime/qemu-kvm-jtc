@@ -125,26 +125,30 @@ static int init_test_device(ISADevice *isa)
     return 0;
 }
 
+static Property testdev_isa_properties[] = {
+    DEFINE_PROP_CHR("chardev", struct testdev, chr),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
 static void testdev_class_init(ObjectClass *klass, void *data)
 {
+    DeviceClass *dc = DEVICE_CLASS(klass);
     ISADeviceClass *k = ISA_DEVICE_CLASS(klass);
 
     k->init = init_test_device;
+    dc->props = testdev_isa_properties;
 }
 
-static DeviceInfo testdev_info = {
-    .name       = "testdev",
-    .size       = sizeof(struct testdev),
-    .class_init = testdev_class_init,
-    .props      = (Property[]) {
-        DEFINE_PROP_CHR("chardev", struct testdev, chr),
-        DEFINE_PROP_END_OF_LIST(),
-    },
+static TypeInfo testdev_info = {
+    .name           = "testdev",
+    .parent         = TYPE_ISA_DEVICE,
+    .instance_size  = sizeof(struct testdev),
+    .class_init     = testdev_class_init,
 };
 
 static void testdev_register_devices(void)
 {
-    isa_qdev_register(&testdev_info);
+    type_register_static(&testdev_info);
 }
 
 device_init(testdev_register_devices)

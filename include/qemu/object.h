@@ -396,6 +396,8 @@ const char *object_get_typename(Object *obj);
  */
 Type type_register_static(const TypeInfo *info);
 
+#define type_register_static_alias(info, name) do { } while (0)
+
 /**
  * type_register:
  * @info: The #TypeInfo of the new type
@@ -431,6 +433,7 @@ const char *object_class_get_name(ObjectClass *klass);
 ObjectClass *object_class_by_name(const char *typename);
 
 void object_class_foreach(void (*fn)(ObjectClass *klass, void *opaque),
+                          const char *implements_type, bool include_abstract,
                           void *opaque);
 
 #endif
