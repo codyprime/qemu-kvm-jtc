@@ -18,6 +18,9 @@ build-all: multiboot.bin linuxboot.bin
 
 build-all: vapic.bin
 
+# suppress auto-removal of intermediate files
+.SECONDARY:
+
 %.img: %.o
 	$(call quiet-command,$(LD) -Ttext 0 -e _start -s -o $@ $<,"  Building $(TARGET_DIR)$@")
 
