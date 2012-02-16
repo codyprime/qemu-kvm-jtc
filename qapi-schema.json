@@ -1107,6 +1107,51 @@
 { 'command': 'block_resize', 'data': { 'device': 'str', 'size': 'int' }}
 
 ##
+# @SnapshotDev
+#
+# @device:  the name of the device to generate the snapshot from.
+#
+# @snapshot-file: the target of the new image. If the file exists, or if it
+#                 is a device, the snapshot will be created in the existing
+#                 file/device. If does not exist, a new file will be created.
+#
+# @format: #optional the format of the snapshot image, default is 'qcow2'.
+##
+{ 'type': 'SnapshotDev',
+  'data': {'device': 'str', 'snapshot-file': 'str', '*format': 'str' } }
+
+##
+# @blockdev-group-snapshot-sync
+#
+# Generates a synchronous snapshot of a group of one or more block devices,
+# as atomically as possible.
+#
+#  List of:
+#  @SnapshotDev: information needed for the device snapshot
+#
+# Returns: nothing on success
+#          If @device is not a valid block device, DeviceNotFound
+#          If @snapshot-file can't be opened, OpenFileFailed
+#          If @format is invalid, InvalidBlockFormat
+#
+# Notes: One of the last steps taken by this command is to close the current
+#        images being used by each specified @device and open the corresponding
+#        @snapshot-file one. If that fails, the command will try to reopen
+#        all of the original image files, for each device specified. If
+#        that also fails OpenFileFailed will be returned and the guest may get
+#        unexpected errors.
+#
+#        Since there could potentially be more than one file open or drive
+#        failures, the additional command 'blockdev-query-group-snapshot-failure'
+#        will return a list of all device files that have failed.  This could
+#        include the original filename if the reopen of an original image file
+#        failed.
+#
+##
+{ 'command': 'blockdev-group-snapshot-sync',
+  'data': { 'dev': [ 'SnapshotDev' ] } }
+
+##
 # @blockdev-snapshot-sync
 #
 # Generates a synchronous snapshot of a block device.

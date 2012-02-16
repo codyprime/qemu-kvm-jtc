@@ -665,6 +665,44 @@ EQMP
         .args_type  = "device:B",
         .mhandler.cmd_new = qmp_marshal_input_block_job_cancel,
     },
+    {
+        .name       = "blockdev-group-snapshot-sync",
+        .args_type  = "device:B,snapshot-file:s,format:s?",
+        .mhandler.cmd_new = qmp_marshal_input_blockdev_group_snapshot_sync,
+    },
+
+SQMP
+blockdev-group-snapshot-sync
+----------------------
+
+Synchronous snapshot of one or more block devices.  A list array input
+is accepted, that contains the device, snapshot-file to be create as the
+target of the new image. If the file exists, or if it is a device, the
+snapshot will be created in the existing file/device. If does not
+exist, a new file will be created. format specifies the format of the
+snapshot image, default is qcow2.  On failure of any device, it is
+attempted to reopen the original image for all the devices that were
+specified.
+
+Arguments:
+
+- "device": device name to snapshot (json-string)
+- "snapshot-file": name of new image file (json-string)
+- "format": format of new image (json-string, optional)
+
+Example:
+
+-> { "execute": "blockdev-group-snapshot-sync", "arguments": [{ "device": "ide-hd0",
+                                                                "snapshot-file":
+                                                                "/some/place/my-image",
+                                                                "format": "qcow2" },
+                                                              { "device": "ide-hd1",
+                                                                "snapshot-file":
+                                                                "/some/place/my-image2",
+                                                                "format": "qcow2" } }
+<- { "return": {} }
+
+EQMP
 
     {
         .name       = "blockdev-snapshot-sync",

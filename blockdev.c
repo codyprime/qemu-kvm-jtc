@@ -714,6 +714,136 @@ void qmp_blockdev_snapshot_sync(const char *device, const char *snapshot_file,
     }
 }
 
+
+typedef struct BlkGroupSnapshotData {
+    BlockDriverState *bs;
+    BlockDriver *drv;
+    BlockDriver *old_drv;
+    int flags;
+    const char *format;
+    char old_filename[1024];
+    const char *snapshot_file;
+    bool has_pivoted;
+    QSIMPLEQ_ENTRY(BlkGroupSnapshotData) entry;
+} BlkGroupSnapshotData;
+
+/*
+ * 'Atomic' group snapshots.  The snapshots are taken as a set, and if any fail
+ *  then we attempt to undo all of the pivots performed.
+ */
+void qmp_blockdev_group_snapshot_sync(SnapshotDevList *dev_list,
+                                                   Error **errp)
+{
+    int ret = 0;
+    SnapshotDevList *dev_entry = dev_list;
+    SnapshotDev *dev_info = NULL;
+    BlkGroupSnapshotData *snap_entry;
+    BlockDriver *proto_drv;
+
+    QSIMPLEQ_HEAD(gsnp_list, BlkGroupSnapshotData) gsnp_list;
+    QSIMPLEQ_INIT(&gsnp_list);
+
+    /* We don't do anything in this loop that commits us to the snapshot */
+    while (NULL != dev_entry) {
+        dev_info = dev_entry->value;
+        dev_entry = dev_entry->next;
+
+        snap_entry = g_malloc0(sizeof(BlkGroupSnapshotData));
+
+        snap_entry->bs = bdrv_find(dev_info->device);
+
+        if (!snap_entry->bs) {
+            error_set(errp, QERR_DEVICE_NOT_FOUND, dev_info->device);
+            goto exit;
+        }
+        if (bdrv_in_use(snap_entry->bs)) {
+            error_set(errp, QERR_DEVICE_IN_USE, dev_info->device);
+            goto exit;
+        }
+
+        pstrcpy(snap_entry->old_filename, sizeof(snap_entry->old_filename),
+                snap_entry->bs->filename);
+
+        snap_entry->snapshot_file = dev_info->snapshot_file;
+        snap_entry->old_drv = snap_entry->bs->drv;
+        snap_entry->flags = snap_entry->bs->open_flags;
+
+        if (!dev_info->has_format) {
+            snap_entry->format = "qcow2";
+        } else {
+            snap_entry->format = dev_info->format;
+        }
+
+        snap_entry->drv = bdrv_find_format(snap_entry->format);
+        if (!snap_entry->drv) {
+            error_set(errp, QERR_INVALID_BLOCK_FORMAT, snap_entry->format);
+            goto exit;
+        }
+
+        proto_drv = bdrv_find_protocol(snap_entry->snapshot_file);
+        if (!proto_drv) {
+            error_set(errp, QERR_INVALID_BLOCK_FORMAT, snap_entry->format);
+            goto exit;
+        }
+        ret = bdrv_img_create(snap_entry->snapshot_file, snap_entry->format,
+                              snap_entry->bs->filename,
+                              snap_entry->bs->drv->format_name, NULL, -1,
+                              snap_entry->flags);
+        if (ret) {
+            error_set(errp, QERR_UNDEFINED_ERROR);
+            goto exit;
+        }
+        snap_entry->has_pivoted = false;
+        QSIMPLEQ_INSERT_TAIL(&gsnp_list, snap_entry, entry);
+    }
+
+    /*
+     * Now we will drain, flush, & pivot everything - if any of the pivots fail,
+     * we will flag an error, and attempt to rollback.
+     */
+    bdrv_drain_all();
+    QSIMPLEQ_FOREACH(snap_entry, &gsnp_list, entry) {
+        bdrv_flush(snap_entry->bs);
+        bdrv_close(snap_entry->bs);
+
+        ret = bdrv_open(snap_entry->bs, snap_entry->snapshot_file,
+                        snap_entry->flags, snap_entry->drv);
+        snap_entry->has_pivoted = true;
+        /*
+         * If we fail any of these, then we need to rollback all that we have
+         * performed up to this point
+         */
+        if (ret != 0) {
+            error_set(errp, QERR_OPEN_FILE_FAILED, snap_entry->snapshot_file);
+            goto error_rollback;
+        }
+    }
+
+    /* success */
+    goto exit;
+
+error_rollback:
+    /* failure, undo everything as much as we can */
+    QSIMPLEQ_FOREACH(snap_entry, &gsnp_list, entry) {
+        if (snap_entry->has_pivoted) {
+            ret = bdrv_open(snap_entry->bs, snap_entry->old_filename,
+                            snap_entry->flags, snap_entry->old_drv);
+            if (ret != 0) {
+                /* This is very very bad */
+                error_set(errp, QERR_OPEN_FILE_FAILED,
+                          snap_entry->old_filename);
+            }
+        }
+    }
+exit:
+    QSIMPLEQ_FOREACH(snap_entry, &gsnp_list, entry) {
+        g_free(snap_entry);
+    }
+
+    return;
+}
+
+
 static void eject_device(BlockDriverState *bs, int force, Error **errp)
 {
     if (bdrv_in_use(bs)) {
