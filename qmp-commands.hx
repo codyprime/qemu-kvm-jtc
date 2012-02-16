@@ -705,6 +705,11 @@ Example:
 EQMP
 
     {
+        .name       = "blockdev-query-group-snapshot-failure",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_blockdev_query_group_snapshot_failure,
+    },
+    {
         .name       = "blockdev-snapshot-sync",
         .args_type  = "device:B,snapshot-file:s,format:s?",
         .mhandler.cmd_new = qmp_marshal_input_blockdev_snapshot_sync,

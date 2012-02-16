@@ -1121,6 +1121,14 @@
   'data': {'device': 'str', 'snapshot-file': 'str', '*format': 'str' } }
 
 ##
+# @SnapshotFail
+#
+#  @failed_file:	string of the filename that failed
+##
+{ 'type': 'SnapshotFail',
+  'data': {'failed_file': 'str' } }
+
+##
 # @blockdev-group-snapshot-sync
 #
 # Generates a synchronous snapshot of a group of one or more block devices,
@@ -1150,6 +1158,23 @@
 ##
 { 'command': 'blockdev-group-snapshot-sync',
   'data': { 'dev': [ 'SnapshotDev' ] } }
+
+##
+# @blockdev-query-group-snapshot-failure
+#
+#
+# Returns: A list of @SnapshotFail, that contains the filenames for all failures
+#		   of the last blockdev-group-snapshot-sync command.
+#
+# Notes:
+#        Since there could potentially be more than one file open or drive
+#        failures, the additional command 'blockdev-query-group-snapshot-failure'
+#        will return a list of all device files that have failed.  This could
+#        include the original filename if the reopen of an original image file
+#        failed.
+#
+##
+{ 'command': 'blockdev-query-group-snapshot-failure', 'returns': [ 'SnapshotFail' ] }
 
 ##
 # @blockdev-snapshot-sync

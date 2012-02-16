@@ -727,6 +727,7 @@ typedef struct BlkGroupSnapshotData {
     QSIMPLEQ_ENTRY(BlkGroupSnapshotData) entry;
 } BlkGroupSnapshotData;
 
+SnapshotFailList *group_snap_fail_list;
 /*
  * 'Atomic' group snapshots.  The snapshots are taken as a set, and if any fail
  *  then we attempt to undo all of the pivots performed.
@@ -739,9 +740,23 @@ void qmp_blockdev_group_snapshot_sync(SnapshotDevList *dev_list,
     SnapshotDev *dev_info = NULL;
     BlkGroupSnapshotData *snap_entry;
     BlockDriver *proto_drv;
+    SnapshotFailList *fail_entry = group_snap_fail_list;
 
     QSIMPLEQ_HEAD(gsnp_list, BlkGroupSnapshotData) gsnp_list;
     QSIMPLEQ_INIT(&gsnp_list);
+
+    /*
+     * clear out our failure list first, and reclaim memory
+     * we maintain the list, so if a group snapshot fails
+     * we can be queried about which devices failed
+     */
+    SnapshotFailList *fail_entry_next = NULL;
+    while (NULL != fail_entry) {
+        g_free(fail_entry->value);
+        fail_entry_next = fail_entry->next;
+        g_free(fail_entry);
+        fail_entry = fail_entry_next;
+    }
 
     /* We don't do anything in this loop that commits us to the snapshot */
     while (NULL != dev_entry) {
@@ -815,6 +830,16 @@ void qmp_blockdev_group_snapshot_sync(SnapshotDevList *dev_list,
          */
         if (ret != 0) {
             error_set(errp, QERR_OPEN_FILE_FAILED, snap_entry->snapshot_file);
+            /*
+             * We bail on the first failure, but add the failed filename to the
+             * return list in case any of the rollback pivots fail as well
+             */
+            SnapshotFailList *failure;
+            failure = g_malloc0(sizeof(SnapshotFailList));
+            failure->value = g_malloc0(sizeof(*failure->value));
+            failure->value->failed_file = g_strdup(snap_entry->snapshot_file);
+            failure->next = group_snap_fail_list;
+            group_snap_fail_list = failure;
             goto error_rollback;
         }
     }
@@ -829,7 +854,17 @@ error_rollback:
             ret = bdrv_open(snap_entry->bs, snap_entry->old_filename,
                             snap_entry->flags, snap_entry->old_drv);
             if (ret != 0) {
-                /* This is very very bad */
+                /*
+                 * This is very very bad.  Make sure the caller is aware
+                 * of which files failed, since there could be more than
+                 * one
+                 */
+                SnapshotFailList *failure;
+                failure = g_malloc0(sizeof(SnapshotFailList));
+                failure->value = g_malloc0(sizeof(*failure->value));
+                failure->value->failed_file = g_strdup(snap_entry->old_filename);
+                failure->next = group_snap_fail_list;
+                group_snap_fail_list = failure;
                 error_set(errp, QERR_OPEN_FILE_FAILED,
                           snap_entry->old_filename);
             }
@@ -841,6 +876,11 @@ exit:
     }
 
     return;
+}
+
+SnapshotFailList *qmp_blockdev_query_group_snapshot_failure(Error **errp)
+{
+    return group_snap_fail_list;
 }
 
 
