@@ -125,6 +125,8 @@ typedef struct mon_cmd_t {
         void (*info)(Monitor *mon);
         void (*cmd)(Monitor *mon, const QDict *qdict);
         int  (*cmd_new)(Monitor *mon, const QDict *params, QObject **ret_data);
+        int  (*cmd_new_list)(Monitor *mon, const QList *params,
+                             QObject **ret_data);
         int  (*cmd_async)(Monitor *mon, const QDict *params,
                           MonitorCompletion *cb, void *opaque);
     } mhandler;
@@ -4310,7 +4312,8 @@ static QDict *qmp_check_input_obj(QObject *input_obj)
             }
             has_exec_key = 1;
         } else if (!strcmp(arg_name, "arguments")) {
-            if (qobject_type(arg_obj) != QTYPE_QDICT) {
+            if ((qobject_type(arg_obj) != QTYPE_QDICT) &&
+                (qobject_type(arg_obj) != QTYPE_QLIST)) {
                 qerror_report(QERR_QMP_BAD_INPUT_OBJECT_MEMBER, "arguments",
                               "object");
                 return NULL;
@@ -4332,14 +4335,23 @@ static QDict *qmp_check_input_obj(QObject *input_obj)
 }
 
 static void qmp_call_cmd(Monitor *mon, const mon_cmd_t *cmd,
-                         const QDict *params)
+                         const QObject *params)
 {
-    int ret;
+    int ret = -1;
     QObject *data = NULL;
+    const QDict *params_qdict;
+    const QList *params_qlist;
+
 
     mon_print_count_init(mon);
 
-    ret = cmd->mhandler.cmd_new(mon, params, &data);
+    if (qobject_type(params) == QTYPE_QDICT) {
+        params_qdict = qobject_to_qdict(params);
+        ret = cmd->mhandler.cmd_new(mon, params_qdict, &data);
+    } else if (qobject_type(params) == QTYPE_QLIST) {
+        params_qlist = qobject_to_qlist(params);
+        ret = cmd->mhandler.cmd_new_list(mon, params_qlist, &data);
+    }
     handler_audit(mon, cmd, ret);
     monitor_protocol_emitter(mon, data);
     qobject_decref(data);
@@ -4350,6 +4362,7 @@ static void handle_qmp_command(JSONMessageParser *parser, QList *tokens)
     int err;
     QObject *obj;
     QDict *input, *args;
+    QList *args_list = NULL;
     const mon_cmd_t *cmd;
     const char *cmd_name;
     Monitor *mon = cur_mon;
@@ -4390,22 +4403,36 @@ static void handle_qmp_command(JSONMessageParser *parser, QList *tokens)
         args = qdict_new();
     } else {
         args = qobject_to_qdict(obj);
-        QINCREF(args);
+        if (args) {
+            QINCREF(args);
+        } else {
+            args_list = qobject_to_qlist(obj);
+            if (args_list) {
+                QINCREF(args_list);
+            }
+        }
     }
 
-    err = qmp_check_client_args(cmd, args);
-    if (err < 0) {
-        goto err_out;
-    }
-
-    if (handler_is_async(cmd)) {
-        err = qmp_async_cmd_handler(mon, cmd, args);
-        if (err) {
-            /* emit the error response */
+    if (args_list) {
+        /* QList input - no arg validation for commands that have list
+         * parameter input */
+        qmp_call_cmd(mon, cmd, QOBJECT(args_list));
+    } else {
+        /* QDict input */
+        err = qmp_check_client_args(cmd, args);
+        if (err < 0) {
             goto err_out;
         }
-    } else {
-        qmp_call_cmd(mon, cmd, args);
+
+        if (handler_is_async(cmd)) {
+            err = qmp_async_cmd_handler(mon, cmd, args);
+            if (err) {
+                /* emit the error response */
+                goto err_out;
+            }
+        } else {
+            qmp_call_cmd(mon, cmd, QOBJECT(args));
+        }
     }
 
     goto out;
@@ -4415,6 +4442,7 @@ err_out:
 out:
     QDECREF(input);
     QDECREF(args);
+    QDECREF(args_list);
 }
 
 /**
