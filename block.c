@@ -880,6 +880,53 @@ void bdrv_make_anon(BlockDriverState *bs)
     bs->device_name[0] = '\0';
 }
 
+/*
+ * Add new bs contents at the top of an image chain while the chain is live,
+ * while keeping required fields on the top layer.
+ *
+ * It is assumed that bs_new already points to an existing image,
+ * with the correct backing filename of top->backing_file
+ */
+void bdrv_append(BlockDriverState *bs_new, BlockDriverState *bs_top)
+{
+    BlockDriverState tmp;
+
+    /* the new bs must not be in bdrv_states */
+    bdrv_make_anon(bs_new);
+
+    tmp = *bs_new;
+    tmp.backing_hd = bs_new;
+
+    /* there are some fields that need to stay on the top layer: */
+
+    /* dev info */
+    tmp.dev_ops          = bs_top->dev_ops;
+    tmp.dev_opaque       = bs_top->dev_opaque;
+    tmp.dev              = bs_top->dev;
+    tmp.buffer_alignment = bs_top->buffer_alignment;
+    tmp.copy_on_read     = bs_top->copy_on_read;
+
+    /* i/o timing parameters */
+    tmp.slice_time        = bs_top->slice_time;
+    tmp.slice_start       = bs_top->slice_start;
+    tmp.slice_end         = bs_top->slice_end;
+    tmp.io_limits         = bs_top->io_limits;
+    tmp.io_base           = bs_top->io_base;
+    tmp.throttled_reqs    = bs_top->throttled_reqs;
+    tmp.block_timer       = bs_top->block_timer;
+    tmp.io_limits_enabled = bs_top->io_limits_enabled;
+
+    /* keep the same entry in bdrv_states */
+    pstrcpy(tmp.device_name, sizeof(tmp.device_name), bs_top->device_name);
+    tmp.list = bs_top->list;
+
+    /* swap contents of the fixed new bs and the current top */
+    *bs_new = *bs_top;
+    *bs_top = tmp;
+
+    bdrv_detach_dev(bs_new, bs_new->dev);
+}
+
 void bdrv_delete(BlockDriverState *bs)
 {
     assert(!bs->dev);
