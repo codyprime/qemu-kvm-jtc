@@ -1228,7 +1228,7 @@
 # @format: #optional the format of the snapshot image, default is 'qcow2'.
 #
 # @mode: #optional whether and how QEMU should create a new image, default is
-# 'absolute-paths'.
+#        'absolute-paths'.
 ##
 { 'type': 'BlockdevSnapshot',
   'data': { 'device': 'str', 'snapshot-file': 'str', '*format': 'str',
@@ -1258,9 +1258,9 @@
 #
 # Returns: nothing on success
 #          If @device is not a valid block device, DeviceNotFound
+#          If the block device has no medium inserted, DeviceHasNoMedium
 #          If @device is busy, DeviceInUse will be returned
-#          If @snapshot-file can't be created, OpenFileFailed
-#          If @snapshot-file can't be opened, OpenFileFailed
+#          If @snapshot-file can't be created or opened, OpenFileFailed
 #          If @format is invalid, InvalidBlockFormat
 #
 # Note: The transaction aborts on the first failure.  Therefore, there will
@@ -1286,11 +1286,13 @@
 # @format: #optional the format of the snapshot image, default is 'qcow2'.
 #
 # @mode: #optional whether and how QEMU should create a new image, default is
-# 'absolute-paths'.
+#        'absolute-paths'.
 #
 # Returns: nothing on success
 #          If @device is not a valid block device, DeviceNotFound
-#          If @snapshot-file can't be opened, OpenFileFailed
+#          If the block device has no medium inserted, DeviceHasNoMedium
+#          If @device is busy, DeviceInUse will be returned
+#          If @snapshot-file can't be created or opened, OpenFileFailed
 #          If @format is invalid, InvalidBlockFormat
 #
 # Since 0.14.0
