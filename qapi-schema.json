@@ -1656,17 +1656,23 @@
 #
 # @speed:  #optional the maximum speed, in bytes per second
 #
+# @on-error: #optional the action to take on an error (default report).
+#            'stop' and 'enospc' can only be used if the block device
+#            supports io-status (see BlockInfo).  Since 1.2.
+#
 # Returns: Nothing on success
 #          If streaming is already active on this device, DeviceInUse
 #          If @device does not exist, DeviceNotFound
 #          If image streaming is not supported by this device, NotSupported
 #          If @base does not exist, BaseNotFound
 #          If @speed is invalid, InvalidParameter
+#          If @on_error is not supported, InvalidParameter
 #
 # Since: 1.1
 ##
-{ 'command': 'block-stream', 'data': { 'device': 'str', '*base': 'str',
-                                       '*speed': 'int' } }
+{ 'command': 'block-stream',
+  'data': { 'device': 'str', '*base': 'str', '*speed': 'int',
+            '*on-error': 'BlockdevOnError' } }
 
 ##
 # @block-job-set-speed:
