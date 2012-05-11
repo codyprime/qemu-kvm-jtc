@@ -91,11 +91,11 @@ typedef struct BlockDevOps {
 typedef enum {
     BLOCK_ERR_REPORT, BLOCK_ERR_IGNORE, BLOCK_ERR_STOP_ENOSPC,
     BLOCK_ERR_STOP_ANY
-} BlockErrorAction;
+} BlockdevOnError;
 
 typedef enum {
     BDRV_ACTION_REPORT, BDRV_ACTION_IGNORE, BDRV_ACTION_STOP
-} BlockQMPEventAction;
+} BlockErrorAction;
 
 void bdrv_iostatus_enable(BlockDriverState *bs);
 void bdrv_iostatus_reset(BlockDriverState *bs);
@@ -103,7 +103,7 @@ void bdrv_iostatus_disable(BlockDriverState *bs);
 bool bdrv_iostatus_is_enabled(const BlockDriverState *bs);
 void bdrv_iostatus_set_err(BlockDriverState *bs, int error);
 void bdrv_emit_qmp_error_event(const BlockDriverState *bdrv,
-                               BlockQMPEventAction action, int is_read);
+                               BlockErrorAction action, int is_read);
 void bdrv_info_print(Monitor *mon, const QObject *data);
 void bdrv_info(Monitor *mon, QObject **ret_data);
 void bdrv_stats_print(Monitor *mon, const QObject *data);
@@ -290,9 +290,9 @@ void bdrv_get_floppy_geometry_hint(BlockDriverState *bs, int *nb_heads,
                                    FDriveType drive_in, FDriveType *drive,
                                    FDriveRate *rate);
 int bdrv_get_translation_hint(BlockDriverState *bs);
-void bdrv_set_on_error(BlockDriverState *bs, BlockErrorAction on_read_error,
-                       BlockErrorAction on_write_error);
-BlockErrorAction bdrv_get_on_error(BlockDriverState *bs, int is_read);
+void bdrv_set_on_error(BlockDriverState *bs, BlockdevOnError on_read_error,
+                       BlockdevOnError on_write_error);
+BlockdevOnError bdrv_get_on_error(BlockDriverState *bs, int is_read);
 int bdrv_is_read_only(BlockDriverState *bs);
 int bdrv_is_sg(BlockDriverState *bs);
 int bdrv_enable_write_cache(BlockDriverState *bs);
