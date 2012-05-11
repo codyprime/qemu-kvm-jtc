@@ -902,6 +902,29 @@
 { 'command': 'query-pci', 'returns': ['PciInfo'] }
 
 ##
+# @BlockdevOnError:
+#
+# An enumeration of possible behaviors for errors on I/O operations.
+# The exact meaning depends on whether the I/O was initiated by a guest
+# or by a block job
+#
+# @report: for guest operations, report the error to the guest;
+#          for jobs, cancel the job
+#
+# @ignore: ignore the error, only report a QMP event (BLOCK_IO_ERROR
+#          or BLOCK_JOB_ERROR)
+#
+# @stop: for guest operations, stop the virtual machine;
+#        for jobs, pause the job
+#
+# @enospc: same as @stop on ENOSPC, same as @report otherwise.
+#
+# Since: 1.2
+##
+{ 'enum': 'BlockdevOnError',
+  'data': ['report', 'ignore', 'enospc', 'stop'] }
+
+##
 # @BlockJobInfo:
 #
 # Information about a long-running block device operation.
