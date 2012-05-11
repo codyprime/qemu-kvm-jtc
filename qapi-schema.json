@@ -1657,7 +1657,7 @@
 # Returns: Nothing on success
 #          If the job type does not support throttling, NotSupported
 #          If the speed value is invalid, InvalidParameter
-#          If no background operation is active on this device, DeviceNotActive
+#          If no background operation is active on this device, BlockJobNotActive
 #
 # Since: 1.1
 ##
@@ -1685,8 +1685,7 @@
 # @device: the device name
 #
 # Returns: Nothing on success
-#          If no background operation is active on this device, DeviceNotActive
-#          If cancellation already in progress, DeviceInUse
+#          If no background operation is active on this device, BlockJobNotActive
 #
 # Since: 1.1
 ##
