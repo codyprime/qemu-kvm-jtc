@@ -112,6 +112,7 @@ bool block_job_is_paused(BlockJob *job)
 void block_job_resume(BlockJob *job)
 {
     job->paused = false;
+    job->iostatus = BLOCK_DEVICE_IO_STATUS_OK;
     if (job->co && !job->busy) {
         qemu_coroutine_enter(job->co, NULL);
     }
@@ -189,11 +190,60 @@ void block_job_sleep_ns(BlockJob *job, QEMUClock *clock, int64_t ns)
 BlockJobInfo *block_job_query(BlockJob *job)
 {
     BlockJobInfo *info = g_new(BlockJobInfo, 1);
-    info->type   = g_strdup(job->job_type->job_type);
-    info->device = g_strdup(bdrv_get_device_name(job->bs));
-    info->len    = job->len;
-    info->paused = job->paused;
-    info->offset = job->offset;
-    info->speed  = job->speed;
+    info->type      = g_strdup(job->job_type->job_type);
+    info->device    = g_strdup(bdrv_get_device_name(job->bs));
+    info->len       = job->len;
+    info->paused    = job->paused;
+    info->offset    = job->offset;
+    info->speed     = job->speed;
+    info->io_status = job->iostatus;
     return info;
+}
+
+static void block_job_iostatus_set_err(BlockJob *job, int error)
+{
+    BlockDeviceIoStatus new_status =
+        (error == ENOSPC ? BLOCK_DEVICE_IO_STATUS_NOSPACE :
+                           BLOCK_DEVICE_IO_STATUS_FAILED);
+
+    /* iostatus values are sorted from less severe to most severe
+     * (ok, nospace, failed).  */
+    if (job->iostatus < new_status) {
+        job->iostatus = new_status;
+    }
+}
+
+
+BlockErrorAction block_job_error_action(BlockJob *job, BlockDriverState *bs,
+                                        BlockdevOnError on_err,
+                                        int is_read, int error)
+{
+    BlockErrorAction action;
+
+    switch (on_err) {
+    case BLOCKDEV_ON_ERROR_ENOSPC:
+        action = (error == ENOSPC) ? BDRV_ACTION_STOP : BDRV_ACTION_REPORT;
+        break;
+    case BLOCKDEV_ON_ERROR_STOP:
+        action = BDRV_ACTION_STOP;
+        break;
+    case BLOCKDEV_ON_ERROR_REPORT:
+        action = BDRV_ACTION_REPORT;
+        break;
+    case BLOCKDEV_ON_ERROR_IGNORE:
+        action = BDRV_ACTION_IGNORE;
+        break;
+    default:
+        abort();
+    }
+    bdrv_emit_qmp_error_event(job->bs, QEVENT_BLOCK_JOB_ERROR, action, is_read);
+    if (action == BDRV_ACTION_STOP) {
+        block_job_pause(job);
+        if (bs == job->bs) {
+            block_job_iostatus_set_err(job, error);
+        } else {
+            bdrv_iostatus_set_err(bs, error);
+        }
+    }
+    return action;
 }

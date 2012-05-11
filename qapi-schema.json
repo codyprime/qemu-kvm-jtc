@@ -941,11 +941,14 @@
 #
 # @speed: the rate limit, bytes per second
 #
+# @io-status: the status of the job (since 1.2)
+#
 # Since: 1.1
 ##
 { 'type': 'BlockJobInfo',
   'data': {'type': 'str', 'device': 'str', 'len': 'int',
-           'offset': 'int', 'paused': 'bool', 'speed': 'int'} }
+           'offset': 'int', 'paused': 'bool', 'speed': 'int',
+           'io-status': 'BlockDeviceIoStatus'} }
 
 ##
 # @query-block-jobs:
