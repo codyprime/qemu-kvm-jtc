@@ -52,6 +52,12 @@ typedef struct BlockJobType {
      * of BlockJobInfo.
      */
     void (*query)(BlockJob *job, BlockJobInfo *info);
+
+    /**
+     * Optional callback for job types whose completion must be triggered
+     * manually.
+     */
+    void (*complete)(BlockJob *job, Error **errp);
 } BlockJobType;
 
 /**
@@ -173,6 +179,15 @@ void block_job_set_speed(BlockJob *job, int64_t speed, Error **errp);
  * Asynchronously cancel the specified job.
  */
 void block_job_cancel(BlockJob *job);
+
+/**
+ * block_job_complete:
+ * @job: The job to be completed.
+ * @errp: Error object.
+ *
+ * Synchronously complete the specified job.
+ */
+void block_job_complete(BlockJob *job, Error **errp);
 
 /**
  * block_job_is_cancelled:
