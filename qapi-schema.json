@@ -926,6 +926,21 @@
   'data': ['report', 'ignore', 'enospc', 'stop'] }
 
 ##
+# @BlockJobTargetInfo:
+#
+# Information about the target device for a long-running block device
+# operation.
+#
+# @info: information on the target device
+#
+# @stats: statistics about a target device
+#
+# Since: 1.2
+##
+{ 'type': 'BlockJobTargetInfo',
+  'data': {'info': 'BlockInfo', 'stats': 'BlockStats'} }
+
+##
 # @BlockJobInfo:
 #
 # Information about a long-running block device operation.
@@ -944,12 +959,16 @@
 #
 # @io-status: the status of the job (since 1.2)
 #
+# @target: the target device, if applicable to this particular type of
+#          job.
+#
 # Since: 1.1
 ##
 { 'type': 'BlockJobInfo',
   'data': {'type': 'str', 'device': 'str', 'len': 'int',
            'offset': 'int', 'paused': 'bool', 'speed': 'int',
-           'io-status': 'BlockDeviceIoStatus'} }
+           'io-status': 'BlockDeviceIoStatus',
+            '*target': 'BlockJobTargetInfo'} }
 
 ##
 # @query-block-jobs:
