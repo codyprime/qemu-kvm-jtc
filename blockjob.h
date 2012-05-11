@@ -72,6 +72,12 @@ struct BlockJob {
     bool cancelled;
 
     /**
+     * Set to true if the job is either paused, or will pause itself
+     * as soon as possible (if busy == true).
+     */
+    bool paused;
+
+    /**
      * Set to false by the job while it is in a quiescent state, where
      * no I/O is pending and the job has yielded on any condition
      * that is not detected by #qemu_aio_wait, such as a timer.
@@ -171,6 +177,30 @@ bool block_job_is_cancelled(BlockJob *job);
  * Return information about a job.
  */
 BlockJobInfo *block_job_query(BlockJob *job);
+
+/**
+ * block_job_pause:
+ * @job: The job to be paused.
+ *
+ * Asynchronously pause the specified job.
+ */
+void block_job_pause(BlockJob *job);
+
+/**
+ * block_job_resume:
+ * @job: The job to be resumed.
+ *
+ * Resume the specified job.
+ */
+void block_job_resume(BlockJob *job);
+
+/**
+ * block_job_is_paused:
+ * @job: The job being queried.
+ *
+ * Returns whether the job is currently paused.
+ */
+bool block_job_is_paused(BlockJob *job);
 
 /**
  * block_job_cancel_sync:
