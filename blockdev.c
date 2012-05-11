@@ -9,6 +9,7 @@
 
 #include "block.h"
 #include "blockdev.h"
+#include "blockjob.h"
 #include "monitor.h"
 #include "qerror.h"
 #include "qemu-option.h"
