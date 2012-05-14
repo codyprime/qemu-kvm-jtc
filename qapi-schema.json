@@ -1686,13 +1686,56 @@
 #
 # @device: the device name
 #
+# @force: #optional whether to allow cancellation of a paused job (default false)
+#
 # Returns: Nothing on success
 #          If no background operation is active on this device, BlockJobNotActive
-#          If the job is currently paused, BlockJobPaused
+#          If the job is paused and force is absent or false, BlockJobPaused
 #
 # Since: 1.1
 ##
-{ 'command': 'block-job-cancel', 'data': { 'device': 'str' } }
+{ 'command': 'block-job-cancel', 'data': { 'device': 'str', '*force': 'bool' } }
+
+##
+# @block-job-pause:
+#
+# Pause an active background block operation.
+#
+# This command returns immediately after marking the active background block
+# operation for pausing.  It is an error to call this command if no
+# operation is in progress.
+#
+# The operation will pause as soon as possible.  No event is emitted when
+# the operation is actually paused.  Cancelling a paused job automatically
+# resumes it.
+#
+# @device: the device name
+#
+# Returns: Nothing on success
+#          If no background operation is active on this device, DeviceNotActive
+#
+# Since: 1.2
+##
+{ 'command': 'block-job-pause', 'data': { 'device': 'str' } }
+
+##
+# @block-job-resume:
+#
+# Resume an active background block operation.
+#
+# This command returns immediately after resuming a paused background block
+# operation for cancellation.  It is an error to call this command if no
+# operation is in progress.
+#
+# @device: the device name
+#
+# Returns: Nothing on success
+#          If no background operation is active on this device, DeviceNotActive
+#          If cancellation already in progress, DeviceInUse
+#
+# Since: 1.2
+##
+{ 'command': 'block-job-resume', 'data': { 'device': 'str' } }
 
 ##
 # @ObjectTypeInfo:
