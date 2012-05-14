@@ -34,6 +34,7 @@ typedef struct MirrorBlockJob {
     MirrorSyncMode mode;
     BlockdevOnError on_source_error, on_target_error;
     bool synced;
+    bool complete;
     int64_t sector_num;
     uint8_t *buf;
 } MirrorBlockJob;
@@ -155,7 +156,7 @@ static void coroutine_fn mirror_run(void *opaque)
             s->synced = true;
             s->common.offset = end * BDRV_SECTOR_SIZE;
 
-            should_complete = block_job_is_cancelled(&s->common);
+            should_complete = block_job_is_cancelled(&s->common) || s->complete;
             if (should_complete) {
                 /* The dirty bitmap is not updated while operations are pending.
                  * If we're about to exit, wait for pending operations before
@@ -208,7 +209,11 @@ immediate_exit:
     g_free(s->buf);
     bdrv_set_dirty_tracking(bs, false);
     bdrv_iostatus_disable(s->target);
-    bdrv_close(s->target);
+    if (s->complete && ret == 0) {
+        bdrv_swap(s->target, s->common.bs);
+    } else {
+        bdrv_close(s->target);
+    }
     bdrv_delete(s->target);
     block_job_completed(&s->common, ret);
 }
@@ -241,12 +246,35 @@ static void mirror_query(BlockJob *job, BlockJobInfo *info)
     info->target->stats = bdrv_query_stats(s->target);
 }
 
+static void mirror_complete(BlockJob *job, Error **errp)
+{
+    MirrorBlockJob *s = container_of(job, MirrorBlockJob, common);
+    int ret;
+
+    ret = bdrv_ensure_backing_file(s->target);
+    if (ret < 0) {
+        char backing_filename[PATH_MAX];
+        bdrv_get_full_backing_filename(s->target, backing_filename,
+                                       sizeof(backing_filename));
+        error_set(errp, QERR_OPEN_FILE_FAILED, backing_filename);
+        return;
+    }
+    if (!s->synced) {
+        error_set(errp, QERR_BLOCK_JOB_NOT_READY, job->bs->device_name);
+        return;
+    }
+
+    s->complete = true;
+    block_job_resume(job);
+}
+
 static BlockJobType mirror_job_type = {
     .instance_size = sizeof(MirrorBlockJob),
     .job_type      = "mirror",
     .set_speed     = mirror_set_speed,
     .iostatus_reset= mirror_iostatus_reset,
     .query         = mirror_query,
+    .complete      = mirror_complete,
 };
 
 void mirror_start(BlockDriverState *bs, BlockDriverState *target,
