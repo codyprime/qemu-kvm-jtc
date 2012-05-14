@@ -205,10 +205,21 @@ static void mirror_set_speed(BlockJob *job, int64_t speed, Error **errp)
     ratelimit_set_speed(&s->limit, speed / BDRV_SECTOR_SIZE, SLICE_TIME);
 }
 
+static void mirror_query(BlockJob *job, BlockJobInfo *info)
+{
+    MirrorBlockJob *s = container_of(job, MirrorBlockJob, common);
+
+    info->has_target = true;
+    info->target = g_new0(BlockJobTargetInfo, 1);
+    info->target->info = bdrv_query_info(s->target);
+    info->target->stats = bdrv_query_stats(s->target);
+}
+
 static BlockJobType mirror_job_type = {
     .instance_size = sizeof(MirrorBlockJob),
     .job_type      = "mirror",
     .set_speed     = mirror_set_speed,
+    .query         = mirror_query,
 };
 
 void mirror_start(BlockDriverState *bs, BlockDriverState *target,
