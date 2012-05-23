@@ -435,7 +435,7 @@
 #
 # Since: 1.0
 ##
-{ 'enum': 'BlockDeviceIoStatus', 'data': [ 'ok', 'failed', 'nospace' ] }
+{ 'enum': 'BlockDeviceIoStatus', 'data': [ 'ok', 'nospace', 'failed' ] }
 
 ##
 # @BlockInfo:
