@@ -30,6 +30,7 @@
 #include "qemu-coroutine.h"
 #include "qemu-timer.h"
 #include "qapi-types.h"
+#include "hbitmap.h"
 #include "monitor.h"
 
 #define BLOCK_FLAG_ENCRYPT	1
@@ -259,8 +260,7 @@ struct BlockDriverState {
     bool iostatus_enabled;
     BlockDeviceIoStatus iostatus;
     char device_name[32];
-    unsigned long *dirty_bitmap;
-    int64_t dirty_count;
+    HBitmap *dirty_bitmap;
     int in_use; /* users other than guest access, eg. block migration */
     QTAILQ_ENTRY(BlockDriverState) list;
 
