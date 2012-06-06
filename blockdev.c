@@ -931,8 +931,6 @@ void qmp_drive_mirror(const char *device, const char *target,
         return;
     }
 
-    /* ### TODO check for cluster size vs. dirty bitmap granularity */
-
     target_bs = bdrv_new("");
     ret = bdrv_open(target_bs, target, flags | BDRV_O_NO_BACKING, drv);
 
