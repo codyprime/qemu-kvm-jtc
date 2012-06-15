@@ -17,14 +17,8 @@
 #include "qemu/ratelimit.h"
 #include "bitmap.h"
 
-enum {
-    /*
-     * Size of data buffer for populating the image file.  This should be large
-     * enough to process multiple clusters in a single call, so that populating
-     * contiguous regions of the image is efficient.
-     */
-    BLOCK_SIZE = 512 * BDRV_SECTORS_PER_DIRTY_CHUNK, /* in bytes */
-};
+#define BLOCK_SIZE                       (1 << 20)
+#define BDRV_SECTORS_PER_DIRTY_CHUNK     (BLOCK_SIZE >> BDRV_SECTOR_BITS)
 
 #define SLICE_TIME 100000000ULL /* ns */
 
@@ -255,7 +249,7 @@ static void coroutine_fn mirror_run(void *opaque)
 immediate_exit:
     g_free(s->buf);
     g_free(s->cow_bitmap);
-    bdrv_set_dirty_tracking(bs, false);
+    bdrv_set_dirty_tracking(bs, 0);
     bdrv_iostatus_disable(s->target);
     if (s->complete && ret == 0) {
         bdrv_swap(s->target, s->common.bs);
@@ -352,7 +346,7 @@ void mirror_start(BlockDriverState *bs, BlockDriverState *target,
     s->mode = mode;
     s->buf_size = BLOCK_SIZE;
 
-    bdrv_set_dirty_tracking(bs, true);
+    bdrv_set_dirty_tracking(bs, BDRV_SECTORS_PER_DIRTY_CHUNK);
     bdrv_set_on_error(s->target, on_target_error, on_target_error);
     bdrv_iostatus_enable(s->target);
     s->common.co = qemu_coroutine_create(mirror_run);
