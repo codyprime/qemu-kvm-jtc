@@ -485,7 +485,7 @@ static int64_t get_remaining_dirty(void)
         dirty += bdrv_get_dirty_count(bmds->bs);
     }
 
-    return dirty * BLOCK_SIZE;
+    return dirty << BDRV_SECTOR_BITS;
 }
 
 static int is_stage2_completed(void)

@@ -4079,7 +4079,7 @@ void bdrv_reset_dirty(BlockDriverState *bs, int64_t cur_sector,
 int64_t bdrv_get_dirty_count(BlockDriverState *bs)
 {
     if (bs->dirty_bitmap) {
-        return hbitmap_count(bs->dirty_bitmap) >> BDRV_LOG_SECTORS_PER_DIRTY_CHUNK;
+        return hbitmap_count(bs->dirty_bitmap);
     } else {
         return 0;
     }
