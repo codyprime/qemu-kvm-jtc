@@ -17,9 +17,6 @@
 #include "qemu/ratelimit.h"
 #include "bitmap.h"
 
-#define BLOCK_SIZE                       (1 << 20)
-#define BDRV_SECTORS_PER_DIRTY_CHUNK     (BLOCK_SIZE >> BDRV_SECTOR_BITS)
-
 #define SLICE_TIME 100000000ULL /* ns */
 
 typedef struct MirrorBlockJob {
@@ -31,6 +28,7 @@ typedef struct MirrorBlockJob {
     bool synced;
     bool complete;
     int64_t sector_num;
+    int64_t granularity;
     size_t buf_size;
     unsigned long *cow_bitmap;
     HBitmapIter hbi;
@@ -43,7 +41,7 @@ static int coroutine_fn mirror_iteration(MirrorBlockJob *s,
     BlockDriverState *source = s->common.bs;
     BlockDriverState *target = s->target;
     QEMUIOVector qiov;
-    int ret, nb_sectors;
+    int ret, nb_sectors, nb_sectors_chunk;
     int64_t end, sector_num, cluster_num;
     struct iovec iov;
 
@@ -59,19 +57,19 @@ static int coroutine_fn mirror_iteration(MirrorBlockJob *s,
      * is very large, we need to do COW ourselves.  The first time a cluster is
      * copied, copy it entirely.
      *
-     * Because both BDRV_SECTORS_PER_DIRTY_CHUNK and the cluster size are
-     * powers of two, the number of sectors to copy cannot exceed one cluster.
+     * Because both the granularity and the cluster size are powers of two, the
+     * number of sectors to copy cannot exceed one cluster.
      */
     sector_num = s->sector_num;
-    nb_sectors = BDRV_SECTORS_PER_DIRTY_CHUNK;
-    cluster_num = sector_num / BDRV_SECTORS_PER_DIRTY_CHUNK;
+    nb_sectors_chunk = nb_sectors = s->granularity >> BDRV_SECTOR_BITS;
+    cluster_num = sector_num / nb_sectors_chunk;
     if (s->cow_bitmap && !test_bit(cluster_num, s->cow_bitmap)) {
         trace_mirror_cow(s, sector_num);
         bdrv_round_to_clusters(s->target,
-                               sector_num, BDRV_SECTORS_PER_DIRTY_CHUNK,
+                               sector_num, nb_sectors_chunk,
                                &sector_num, &nb_sectors);
-        bitmap_set(s->cow_bitmap, sector_num / BDRV_SECTORS_PER_DIRTY_CHUNK,
-                   nb_sectors / BDRV_SECTORS_PER_DIRTY_CHUNK);
+        bitmap_set(s->cow_bitmap, sector_num / nb_sectors_chunk,
+                   nb_sectors / nb_sectors_chunk);
     }
 
     end = s->common.len >> BDRV_SECTOR_BITS;
@@ -109,7 +107,7 @@ static void coroutine_fn mirror_run(void *opaque)
 {
     MirrorBlockJob *s = opaque;
     BlockDriverState *bs = s->common.bs;
-    int64_t sector_num, end, length;
+    int64_t sector_num, end, nb_sectors_chunk, length;
     BlockDriverInfo bdi;
     char backing_filename[1024];
     int ret = 0;
@@ -135,20 +133,21 @@ static void coroutine_fn mirror_run(void *opaque)
         bdrv_get_info(s->target, &bdi);
         if (s->buf_size < bdi.cluster_size) {
             s->buf_size = bdi.cluster_size;
-            length = (bdrv_getlength(bs) + BLOCK_SIZE - 1) / BLOCK_SIZE;
+            length = (bdrv_getlength(bs) + s->granularity - 1) / s->granularity;
             s->cow_bitmap = bitmap_new(length);
         }
     }
 
     end = s->common.len >> BDRV_SECTOR_BITS;
     s->buf = qemu_blockalign(bs, s->buf_size);
+    nb_sectors_chunk = s->granularity >> BDRV_SECTOR_BITS;
 
     if (s->mode == MIRROR_SYNC_MODE_FULL || s->mode == MIRROR_SYNC_MODE_TOP) {
         /* First part, loop on the sectors and initialize the dirty bitmap.  */
         BlockDriverState *base;
         base = s->mode == MIRROR_SYNC_MODE_FULL ? NULL : bs->backing_hd;
         for (sector_num = 0; sector_num < end; ) {
-            int64_t next = (sector_num | (BDRV_SECTORS_PER_DIRTY_CHUNK - 1)) + 1;
+            int64_t next = (sector_num | (nb_sectors_chunk - 1)) + 1;
             ret = bdrv_co_is_allocated_above(bs, base,
                                              sector_num, next - sector_num, &n);
 
@@ -220,7 +219,7 @@ static void coroutine_fn mirror_run(void *opaque)
             s->common.offset = (end - cnt) * BDRV_SECTOR_SIZE;
 
             if (s->common.speed) {
-                delay_ns = ratelimit_calculate_delay(&s->limit, BDRV_SECTORS_PER_DIRTY_CHUNK);
+                delay_ns = ratelimit_calculate_delay(&s->limit, nb_sectors_chunk);
             } else {
                 delay_ns = 0;
             }
@@ -320,13 +319,15 @@ static BlockJobType mirror_job_type = {
 };
 
 void mirror_start(BlockDriverState *bs, BlockDriverState *target,
-                  int64_t speed, MirrorSyncMode mode,
+                  int64_t speed, int64_t granularity, MirrorSyncMode mode,
                   BlockdevOnError on_source_error,
                   BlockdevOnError on_target_error,
                   BlockDriverCompletionFunc *cb,
                   void *opaque, Error **errp)
 {
     MirrorBlockJob *s;
+
+    assert ((granularity & (granularity - 1)) == 0);
 
     if ((on_source_error == BLOCKDEV_ON_ERROR_STOP ||
          on_source_error == BLOCKDEV_ON_ERROR_ENOSPC) &&
@@ -344,9 +345,10 @@ void mirror_start(BlockDriverState *bs, BlockDriverState *target,
     s->on_target_error = on_target_error;
     s->target = target;
     s->mode = mode;
-    s->buf_size = BLOCK_SIZE;
+    s->granularity = granularity;
+    s->buf_size = granularity;
 
-    bdrv_set_dirty_tracking(bs, BDRV_SECTORS_PER_DIRTY_CHUNK);
+    bdrv_set_dirty_tracking(bs, granularity >> BDRV_SECTOR_BITS);
     bdrv_set_on_error(s->target, on_target_error, on_target_error);
     bdrv_iostatus_enable(s->target);
     s->common.co = qemu_coroutine_create(mirror_run);

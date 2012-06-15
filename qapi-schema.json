@@ -1389,6 +1389,9 @@
 #        (all the disk, only the sectors allocated in the topmost image, or
 #        only new I/O).
 #
+# @granularity: #optional granularity of the dirty bitmap, default is 64K.
+#               Must be a power of 2 between 512 and 64M.
+#
 # @on-source-error: #optional the action to take on an error on the source,
 #                   default 'report'.  'stop' and 'enospc' can only be used
 #                   if the block device supports io-status (see BlockInfo).
@@ -1401,6 +1404,7 @@
 #          If @device is not a valid block device, DeviceNotFound
 #          If @target can't be opened, OpenFileFailed
 #          If @format is invalid, InvalidBlockFormat
+#          If @granularity is not a power of 2, InvalidParameter
 #          If @on_source_error is not supported, InvalidParameter
 #
 # Since 1.2
@@ -1408,7 +1412,8 @@
 { 'command': 'drive-mirror',
   'data': { 'device': 'str', 'target': 'str', '*format': 'str',
             'sync': 'MirrorSyncMode', '*mode': 'NewImageMode',
-            '*speed': 'int', '*on-source-error': 'BlockdevOnError',
+            '*speed': 'int', '*granularity': 'int',
+            '*on-source-error': 'BlockdevOnError',
             '*on-target-error': 'BlockdevOnError' } }
 
 ##
