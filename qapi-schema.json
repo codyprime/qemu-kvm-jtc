@@ -1392,6 +1392,9 @@
 # @granularity: #optional granularity of the dirty bitmap, default is 64K.
 #               Must be a power of 2 between 512 and 64M.
 #
+# @buf-size: #optional maximum amount of data in flight from source to
+#            target.
+#
 # @on-source-error: #optional the action to take on an error on the source,
 #                   default 'report'.  'stop' and 'enospc' can only be used
 #                   if the block device supports io-status (see BlockInfo).
@@ -1413,7 +1416,7 @@
   'data': { 'device': 'str', 'target': 'str', '*format': 'str',
             'sync': 'MirrorSyncMode', '*mode': 'NewImageMode',
             '*speed': 'int', '*granularity': 'int',
-            '*on-source-error': 'BlockdevOnError',
+            '*buf-size': 'int', '*on-source-error': 'BlockdevOnError',
             '*on-target-error': 'BlockdevOnError' } }
 
 ##
