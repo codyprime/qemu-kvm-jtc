@@ -880,6 +880,60 @@ unlink_and_fail:
     return ret;
 }
 
+int bdrv_reopen_prepare(BlockDriverState *bs, BDRVReopenState **prs, int flags)
+{
+     BlockDriver *drv = bs->drv;
+
+     return drv->bdrv_reopen_prepare(bs, prs, flags);
+}
+
+void bdrv_reopen_commit(BlockDriverState *bs, BDRVReopenState *rs)
+{
+    BlockDriver *drv = bs->drv;
+
+    drv->bdrv_reopen_commit(bs, rs);
+}
+
+void bdrv_reopen_abort(BlockDriverState *bs, BDRVReopenState *rs)
+{
+    BlockDriver *drv = bs->drv;
+
+    drv->bdrv_reopen_abort(bs, rs);
+}
+
+void bdrv_reopen(BlockDriverState *bs, int bdrv_flags, Error **errp)
+{
+    BlockDriver *drv = bs->drv;
+    int ret = 0;
+    BDRVReopenState *reopen_state = NULL;
+
+    /* Quiesce IO for the given block device */
+    bdrv_drain_all();
+    ret = bdrv_flush(bs);
+    if (ret != 0) {
+        error_set(errp, QERR_IO_ERROR);
+        return;
+    }
+
+    /* Use driver specific reopen() if available */
+    if (drv->bdrv_reopen_prepare) {
+        ret = bdrv_reopen_prepare(bs, &reopen_state, bdrv_flags);
+         if (ret < 0) {
+            bdrv_reopen_abort(bs, reopen_state);
+            error_set(errp, QERR_OPEN_FILE_FAILED, bs->filename);
+            return;
+        }
+
+        bdrv_reopen_commit(bs, reopen_state);
+        bs->open_flags = bdrv_flags;
+    } else {
+        error_set(errp, QERR_BLOCK_FORMAT_FEATURE_NOT_SUPPORTED,
+                  drv->format_name, bs->device_name,
+                  "reopening of file");
+        return;
+    }
+}
+
 void bdrv_close(BlockDriverState *bs)
 {
     bdrv_flush(bs);

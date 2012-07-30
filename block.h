@@ -125,6 +125,10 @@ int bdrv_file_open(BlockDriverState **pbs, const char *filename, int flags);
 int bdrv_ensure_backing_file(BlockDriverState *bs);
 int bdrv_open(BlockDriverState *bs, const char *filename, int flags,
               BlockDriver *drv);
+void bdrv_reopen(BlockDriverState *bs, int bdrv_flags, Error **errp);
+int bdrv_reopen_prepare(BlockDriverState *bs, BDRVReopenState **prs, int flags);
+void bdrv_reopen_commit(BlockDriverState *bs, BDRVReopenState *rs);
+void bdrv_reopen_abort(BlockDriverState *bs, BDRVReopenState *rs);
 void bdrv_close(BlockDriverState *bs);
 int bdrv_attach_dev(BlockDriverState *bs, void *dev);
 void bdrv_attach_dev_nofail(BlockDriverState *bs, void *dev);
