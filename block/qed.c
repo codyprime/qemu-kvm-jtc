@@ -18,6 +18,14 @@
 #include "qerror.h"
 #include "migration.h"
 
+typedef struct BDRVQEDReopenState {
+    BDRVReopenState reopen_state;
+    BDRVQEDState *stash_s;
+} BDRVQEDReopenState;
+
+static void qed_stash_state(BDRVQEDState *stashed_state, BDRVQEDState *s);
+static void qed_revert_state(BDRVQEDState *s, BDRVQEDState *stashed_state);
+
 static void qed_aio_cancel(BlockDriverAIOCB *blockacb)
 {
     QEDAIOCB *acb = (QEDAIOCB *)blockacb;
@@ -510,6 +518,98 @@ out:
         qemu_vfree(s->l1_table);
     }
     return ret;
+}
+
+static int bdrv_qed_reopen_prepare(BlockDriverState *bs, BDRVReopenState **prs,
+                               int flags)
+{
+    BDRVQEDReopenState *qed_rs = g_malloc0(sizeof(BDRVQEDReopenState));
+    int ret = 0;
+    BDRVQEDState *s = bs->opaque;
+
+    qed_rs->reopen_state.bs = bs;
+
+    /* save state before reopen */
+    qed_rs->stash_s = g_malloc0(sizeof(BDRVQEDState));
+    qed_stash_state(qed_rs->stash_s, s);
+    *prs = &(qed_rs->reopen_state);
+
+    /* Reopen file with new flags */
+     ret = bdrv_qed_open(bs, flags);
+     return ret;
+}
+
+static void bdrv_qed_reopen_commit(BlockDriverState *bs, BDRVReopenState *rs)
+{
+    BDRVQEDReopenState *qed_rs;
+    BDRVQEDState *stashed_s;
+
+    qed_rs = container_of(rs, BDRVQEDReopenState, reopen_state);
+    stashed_s = qed_rs->stash_s;
+
+    qed_cancel_need_check_timer(stashed_s);
+    qemu_free_timer(stashed_s->need_check_timer);
+
+    qed_free_l2_cache(&stashed_s->l2_cache);
+    qemu_vfree(stashed_s->l1_table);
+
+    g_free(stashed_s);
+    g_free(qed_rs);
+}
+
+static void bdrv_qed_reopen_abort(BlockDriverState *bs, BDRVReopenState *rs)
+{
+    BDRVQEDReopenState *qed_rs;
+    BDRVQEDState *s = bs->opaque;
+    BDRVQEDState *stashed_s;
+
+    qed_rs = container_of(rs, BDRVQEDReopenState, reopen_state);
+
+    /* Revert to stashed state */
+    qed_revert_state(s, qed_rs->stash_s);
+    stashed_s = qed_rs->stash_s;
+
+    g_free(stashed_s);
+    g_free(qed_rs);
+}
+
+static void qed_stash_state(BDRVQEDState *stashed_state, BDRVQEDState *s)
+{
+    stashed_state->bs = s->bs;
+    stashed_state->file_size = s->file_size;
+
+    stashed_state->header = s->header;
+    stashed_state->l1_table = s->l1_table;
+    stashed_state->l2_cache = s->l2_cache;
+    stashed_state->table_nelems = s->table_nelems;
+    stashed_state->l1_shift = s->l1_shift;
+    stashed_state->l2_shift = s->l2_shift;
+    stashed_state->l2_mask = s->l2_mask;
+
+    stashed_state->allocating_write_reqs = s->allocating_write_reqs;
+    stashed_state->allocating_write_reqs_plugged =
+                                         s->allocating_write_reqs_plugged;
+
+    stashed_state->need_check_timer = s->need_check_timer;
+}
+
+static void qed_revert_state(BDRVQEDState *s, BDRVQEDState *stashed_state)
+{
+    s->bs = stashed_state->bs;
+    s->file_size = stashed_state->file_size;
+
+    s->header = stashed_state->header;
+    s->l1_table = stashed_state->l1_table;
+    s->l2_cache = stashed_state->l2_cache;
+    s->table_nelems = stashed_state->table_nelems;
+    s->l1_shift = stashed_state->l1_shift;
+    s->l2_shift = stashed_state->l2_shift;
+    s->l2_mask = stashed_state->l2_mask;
+
+    s->allocating_write_reqs = s->allocating_write_reqs;
+    s->allocating_write_reqs_plugged = s->allocating_write_reqs_plugged;
+
+    s->need_check_timer = s->need_check_timer;
 }
 
 static void bdrv_qed_close(BlockDriverState *bs)
@@ -1560,6 +1660,9 @@ static BlockDriver bdrv_qed = {
     .bdrv_rebind              = bdrv_qed_rebind,
     .bdrv_open                = bdrv_qed_open,
     .bdrv_close               = bdrv_qed_close,
+    .bdrv_reopen_prepare      = bdrv_qed_reopen_prepare,
+    .bdrv_reopen_commit       = bdrv_qed_reopen_commit,
+    .bdrv_reopen_abort        = bdrv_qed_reopen_abort,
     .bdrv_create              = bdrv_qed_create,
     .bdrv_co_is_allocated     = bdrv_qed_co_is_allocated,
     .bdrv_make_empty          = bdrv_qed_make_empty,
