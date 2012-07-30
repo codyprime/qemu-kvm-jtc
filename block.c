@@ -2569,6 +2569,7 @@ BlockInfo *bdrv_query_info(BlockDriverState *bs)
     info->device = g_strdup(bs->device_name);
     info->type = g_strdup("unknown");
     info->locked = bdrv_dev_is_medium_locked(bs);
+    info->hostcache = !(bs->open_flags & BDRV_O_NOCACHE);
     info->removable = bdrv_dev_has_removable_media(bs);
 
     if (bdrv_dev_has_removable_media(bs)) {

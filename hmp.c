@@ -215,6 +215,8 @@ void hmp_info_block(Monitor *mon)
             monitor_printf(mon, " tray-open=%d", info->value->tray_open);
         }
 
+        monitor_printf(mon, " hostcache=%d", info->value->hostcache);
+
         if (info->value->has_io_status) {
             monitor_printf(mon, " io-status=%s",
                            BlockDeviceIoStatus_lookup[info->value->io_status]);

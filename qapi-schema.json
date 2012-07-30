@@ -454,6 +454,8 @@
 # @locked: True if the guest has locked this device from having its media
 #          removed
 #
+# @hostcache: True if host pagecache is enabled.
+#
 # @tray_open: #optional True if the device has a tray and it is open
 #             (only present if removable is true)
 #
@@ -467,7 +469,7 @@
 ##
 { 'type': 'BlockInfo',
   'data': {'*device': 'str', 'type': 'str', 'removable': 'bool',
-           'locked': 'bool', '*inserted': 'BlockDeviceInfo',
+           'locked': 'bool','hostcache': 'bool','*inserted': 'BlockDeviceInfo',
            '*tray_open': 'bool', '*io-status': 'BlockDeviceIoStatus'} }
 
 ##
