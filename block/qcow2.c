@@ -52,9 +52,18 @@ typedef struct {
     uint32_t magic;
     uint32_t len;
 } QCowExtension;
+
+typedef struct BDRVQcowReopenState {
+    BDRVReopenState reopen_state;
+    BDRVQcowState *stash_s;
+} BDRVQcowReopenState;
+
 #define  QCOW2_EXT_MAGIC_END 0
 #define  QCOW2_EXT_MAGIC_BACKING_FORMAT 0xE2792ACA
 #define  QCOW2_EXT_MAGIC_FEATURE_TABLE 0x6803f857
+
+static void qcow2_stash_state(BDRVQcowState *stashed_state, BDRVQcowState *s);
+static void qcow2_revert_state(BDRVQcowState *s, BDRVQcowState *stashed_state);
 
 static int qcow2_probe(const uint8_t *buf, int buf_size, const char *filename)
 {
@@ -432,6 +441,169 @@ static int qcow2_open(BlockDriverState *bs, int flags)
     g_free(s->cluster_cache);
     qemu_vfree(s->cluster_data);
     return ret;
+}
+
+static int qcow2_reopen_prepare(BlockDriverState *bs, BDRVReopenState **prs,
+                               int flags)
+{
+    BDRVQcowReopenState *qcow2_rs = g_malloc0(sizeof(BDRVQcowReopenState));
+    int ret = 0;
+    BDRVQcowState *s = bs->opaque;
+
+    qcow2_rs->reopen_state.bs = bs;
+
+    /* save state before reopen */
+    qcow2_rs->stash_s = g_malloc0(sizeof(BDRVQcowState));
+    qcow2_stash_state(qcow2_rs->stash_s, s);
+    *prs = &(qcow2_rs->reopen_state);
+
+    /* Reopen file with new flags */
+     ret = qcow2_open(bs, flags);
+     return ret;
+}
+
+static void qcow2_reopen_commit(BlockDriverState *bs, BDRVReopenState *rs)
+{
+    BDRVQcowReopenState *qcow2_rs;
+    BDRVQcowState *stashed_s;
+
+    qcow2_rs = container_of(rs, BDRVQcowReopenState, reopen_state);
+    stashed_s = qcow2_rs->stash_s;
+
+    qcow2_cache_flush(bs, stashed_s->l2_table_cache);
+    qcow2_cache_flush(bs, stashed_s->refcount_block_cache);
+
+    qcow2_cache_destroy(bs, stashed_s->l2_table_cache);
+    qcow2_cache_destroy(bs, stashed_s->refcount_block_cache);
+
+    g_free(stashed_s->unknown_header_fields);
+    cleanup_unknown_header_ext(bs);
+
+    g_free(stashed_s->cluster_cache);
+    qemu_vfree(stashed_s->cluster_data);
+    qcow2_refcount_close(bs);
+    qcow2_free_snapshots(bs);
+
+    g_free(stashed_s);
+    g_free(qcow2_rs);
+}
+
+static void qcow2_reopen_abort(BlockDriverState *bs, BDRVReopenState *rs)
+{
+    BDRVQcowReopenState *qcow2_rs;
+    BDRVQcowState *s = bs->opaque;
+    BDRVQcowState *stashed_s;
+
+    qcow2_rs = container_of(rs, BDRVQcowReopenState, reopen_state);
+
+    /* Revert to stashed state */
+    qcow2_revert_state(s, qcow2_rs->stash_s);
+    stashed_s = qcow2_rs->stash_s;
+
+    g_free(stashed_s);
+    g_free(qcow2_rs);
+}
+
+static void qcow2_stash_state(BDRVQcowState *stashed_s, BDRVQcowState *s)
+{
+    stashed_s->cluster_bits = s->cluster_bits;
+    stashed_s->cluster_size = s->cluster_size;
+    stashed_s->cluster_sectors = s->cluster_sectors;
+    stashed_s->l2_bits = s->l2_bits;
+    stashed_s->l2_size = s->l2_size;
+    stashed_s->l1_size = s->l1_size;
+    stashed_s->l1_vm_state_index = s->l1_vm_state_index;
+    stashed_s->csize_shift = s->csize_shift;
+    stashed_s->csize_mask = s->csize_mask;
+    stashed_s->cluster_offset_mask = s->cluster_offset_mask;
+    stashed_s->l1_table_offset = s->l1_table_offset;
+    stashed_s->l1_table = s->l1_table;
+
+    stashed_s->l2_table_cache = s->l2_table_cache;
+    stashed_s->refcount_block_cache = s->refcount_block_cache;
+
+    stashed_s->cluster_cache = s->cluster_cache;
+    stashed_s->cluster_data = s->cluster_data;
+    stashed_s->cluster_cache_offset = s->cluster_cache_offset;
+    stashed_s->cluster_allocs = s->cluster_allocs;
+
+    stashed_s->refcount_table = s->refcount_table;
+    stashed_s->refcount_table_offset = s->refcount_table_offset;
+    stashed_s->refcount_table_size = s->refcount_table_size;
+    stashed_s->free_cluster_index = s->free_cluster_index;
+    stashed_s->free_byte_offset = s->free_byte_offset;
+
+    stashed_s->lock = s->lock;
+
+    stashed_s->crypt_method = s->crypt_method;
+    stashed_s->crypt_method_header = s->crypt_method_header;
+    stashed_s->aes_encrypt_key = s->aes_encrypt_key;
+    stashed_s->aes_decrypt_key = s->aes_decrypt_key;
+    stashed_s->snapshots_offset = s->snapshots_offset;
+    stashed_s->snapshots_size = s->snapshots_size;
+    stashed_s->nb_snapshots = s->nb_snapshots;
+    stashed_s->snapshots = s->snapshots;
+
+    stashed_s->flags = s->flags;
+    stashed_s->qcow_version = s->qcow_version;
+
+    stashed_s->incompatible_features = s->incompatible_features;
+    stashed_s->compatible_features = s->compatible_features;
+
+    stashed_s->unknown_header_fields_size = s->unknown_header_fields_size;
+    stashed_s->unknown_header_fields = s->unknown_header_fields;
+    stashed_s->unknown_header_ext = s->unknown_header_ext;
+
+}
+
+static void qcow2_revert_state(BDRVQcowState *s, BDRVQcowState *stashed_s)
+{
+   s->cluster_bits = stashed_s->cluster_bits;
+   s->cluster_size = stashed_s->cluster_size;
+   s->cluster_sectors = stashed_s->cluster_sectors;
+   s->l2_bits = stashed_s->l2_bits;
+   s->l2_size = stashed_s->l2_size;
+   s->l1_size = stashed_s->l1_size;
+   s->l1_vm_state_index = stashed_s->l1_vm_state_index;
+   s->csize_shift = stashed_s->csize_shift;
+   s->csize_mask = stashed_s->csize_mask;
+   s->cluster_offset_mask = stashed_s->cluster_offset_mask;
+   s->l1_table_offset = stashed_s->l1_table_offset;
+   s->l1_table = stashed_s->l1_table;
+   s->l2_table_cache = stashed_s->l2_table_cache;
+   s->refcount_block_cache = stashed_s->refcount_block_cache;
+
+   s->cluster_cache = stashed_s->cluster_cache;
+   s->cluster_data = stashed_s->cluster_data;
+   s->cluster_cache_offset = stashed_s->cluster_cache_offset;
+   s->cluster_allocs = stashed_s->cluster_allocs;
+
+   s->refcount_table = stashed_s->refcount_table;
+   s->refcount_table_offset = stashed_s->refcount_table_offset;
+   s->refcount_table_size = stashed_s->refcount_table_size;
+   s->free_cluster_index = stashed_s->free_cluster_index;
+   s->free_byte_offset = stashed_s->free_byte_offset;
+
+   s->lock = stashed_s->lock;
+
+   s->crypt_method = stashed_s->crypt_method;
+   s->crypt_method_header = stashed_s->crypt_method_header;
+   s->aes_encrypt_key = stashed_s->aes_encrypt_key;
+   s->aes_decrypt_key = stashed_s->aes_decrypt_key;
+   s->snapshots_offset = stashed_s->snapshots_offset;
+   s->snapshots_size = stashed_s->snapshots_size;
+   s->nb_snapshots = stashed_s->nb_snapshots;
+   s->snapshots = stashed_s->snapshots;
+
+   s->flags = stashed_s->flags;
+   s->qcow_version = stashed_s->qcow_version;
+
+   s->incompatible_features = stashed_s->incompatible_features;
+   s->compatible_features = stashed_s->compatible_features;
+
+   s->unknown_header_fields_size = stashed_s->unknown_header_fields_size;
+   s->unknown_header_fields = stashed_s->unknown_header_fields;
+   s->unknown_header_ext = stashed_s->unknown_header_ext;
 }
 
 static int qcow2_set_key(BlockDriverState *bs, const char *key)
@@ -1567,6 +1739,9 @@ static BlockDriver bdrv_qcow2 = {
     .instance_size      = sizeof(BDRVQcowState),
     .bdrv_probe         = qcow2_probe,
     .bdrv_open          = qcow2_open,
+    .bdrv_reopen_prepare = qcow2_reopen_prepare,
+    .bdrv_reopen_commit = qcow2_reopen_commit,
+    .bdrv_reopen_abort  = qcow2_reopen_abort,
     .bdrv_close         = qcow2_close,
     .bdrv_create        = qcow2_create,
     .bdrv_co_is_allocated = qcow2_co_is_allocated,
