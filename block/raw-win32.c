@@ -26,17 +26,26 @@
 #include "block_int.h"
 #include "module.h"
 #include <windows.h>
+#include <winbase.h>
 #include <winioctl.h>
 
 #define FTYPE_FILE 0
 #define FTYPE_CD     1
 #define FTYPE_HARDDISK 2
+#define WINDOWS_VISTA 6
 
 typedef struct BDRVRawState {
     HANDLE hfile;
     int type;
     char drive_path[16]; /* format: "d:\" */
+    DWORD overlapped;
 } BDRVRawState;
+
+typedef struct BDRVRawReopenState {
+    BDRVReopenState reopen_state;
+    HANDLE stash_hfile;
+    DWORD  stash_overlapped;
+} BDRVRawReopenState;
 
 int qemu_ftruncate64(int fd, int64_t length)
 {
@@ -106,7 +115,94 @@ static int raw_open(BlockDriverState *bs, const char *filename, int flags)
             return -EACCES;
         return -1;
     }
+    s->overlapped = overlapped;
     return 0;
+}
+
+static int raw_reopen_prepare(BlockDriverState *bs, BDRVReopenState **prs,
+                              int flags)
+{
+    BDRVRawReopenState *raw_rs = g_malloc0(sizeof(BDRVRawReopenState));
+    BDRVRawState *s = bs->opaque;
+    int ret = 0;
+    OSVERSIONINFO osvi;
+    BOOL bIsWindowsVistaorLater;
+
+    raw_rs->bs = bs;
+    raw_rs->stash_hfile = s->hfile;
+    raw_rs->stash_overlapped = s->overlapped;
+    *prs = raw_rs;
+
+    if (flags & BDRV_O_NOCACHE) {
+        s->overlapped |= FILE_FLAG_NO_BUFFERING;
+    } else {
+        s->overlapped &= ~FILE_FLAG_NO_BUFFERING;
+    }
+
+    if (!(flags & BDRV_O_CACHE_WB)) {
+        s->overlapped |= FILE_FLAG_WRITE_THROUGH;
+    } else {
+        s->overlapped &= ~FILE_FLAG_WRITE_THROUGH;
+    }
+
+    ZeroMemory(&osvi, sizeof(OSVERSIONINFO));
+    osvi.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
+
+    GetVersionEx(&osvi);
+
+    if (osvi.dwMajorVersion >= WINDOWS_VISTA) {
+        s->hfile = ReOpenFile(raw_rs->stash_hfile, 0, FILE_SHARE_READ,
+                              overlapped);
+        if (s->hfile == INVALID_HANDLE_VALUE) {
+            int err = GetLastError();
+            if (err == ERROR_ACCESS_DENIED) {
+                ret = -EACCES;
+            } else {
+                ret = -1;
+            }
+        }
+    } else {
+
+        DuplicateHandle(GetCurrentProcess(),
+                    raw_rs->stash_hfile,
+                    GetCurrentProcess(),
+                    &s->hfile,
+                    0,
+                    FALSE,
+                    DUPLICATE_SAME_ACCESS);
+        bs->drv->bdrv_close(bs);
+        ret = bs->drv->bdrv_open(bs, bs->filename, flags);
+    }
+    return ret;
+}
+
+
+static void raw_reopen_commit(BlockDriverState *bs, BDRVReopenState *rs)
+{
+    BDRVRawReopenState *raw_rs;
+
+    raw_rs = container_of(rs, BDRVRawReopenState, reopen_state);
+
+    /* clean up stashed handle */
+    CloseHandle(raw_rs->stash_hfile);
+    g_free(raw_rs);
+
+}
+
+static void raw_reopen_abort(BlockDriverState *bs, BDRVReopenState *rs)
+{
+
+    BDRVRawReopenState *raw_rs;
+    BDRVRawState *s = bs->opaque;
+
+    raw_rs = container_of(rs, BDRVRawReopenState, reopen_state);
+
+    if (s->hfile && (s->hfile != INVALID_HANDLE_VALUE)) {
+        CloseHandle(s->hfile);
+    }
+    s->hfile = raw_rs->stash_hfile;
+    s->overlapped = raw_rs->stash_overlapped;
+    g_free(raw_rs);
 }
 
 static int raw_read(BlockDriverState *bs, int64_t sector_num,
