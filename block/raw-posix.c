@@ -140,8 +140,15 @@ typedef struct BDRVRawState {
 #endif
 } BDRVRawState;
 
+typedef struct BDRVRawReopenState {
+    BDRVReopenState reopen_state;
+    BDRVRawState *stash_s;
+} BDRVRawReopenState;
+
 static int fd_open(BlockDriverState *bs);
 static int64_t raw_getlength(BlockDriverState *bs);
+static void raw_stash_state(BDRVRawState *stashed_state, BDRVRawState *s);
+static void raw_revert_state(BDRVRawState *s, BDRVRawState *stashed_state);
 
 #if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
 static int cdrom_reopen(BlockDriverState *bs);
@@ -281,6 +288,117 @@ static int raw_open(BlockDriverState *bs, const char *filename, int flags)
 
     s->type = FTYPE_FILE;
     return raw_open_common(bs, filename, flags, 0);
+}
+
+static int raw_reopen_prepare(BlockDriverState *bs, BDRVReopenState **prs,
+                              int flags)
+{
+    BDRVRawReopenState *raw_rs = g_malloc0(sizeof(BDRVRawReopenState));
+    BDRVRawState *s = bs->opaque;
+    int ret = 0;
+
+    raw_rs->reopen_state.bs = bs;
+
+    /* stash state before reopen */
+    raw_rs->stash_s = g_malloc0(sizeof(BDRVRawState));
+    raw_stash_state(raw_rs->stash_s, s);
+    s->fd = dup3(raw_rs->stash_s->fd, s->fd, O_CLOEXEC);
+
+    *prs = &(raw_rs->reopen_state);
+
+    /* Flags that can be set using fcntl */
+    int fcntl_flags = BDRV_O_NOCACHE;
+
+    if ((bs->open_flags & ~fcntl_flags) == (flags & ~fcntl_flags)) {
+        if ((flags & BDRV_O_NOCACHE)) {
+            s->open_flags |= O_DIRECT;
+        } else {
+            s->open_flags &= ~O_DIRECT;
+        }
+        ret = fcntl_setfl(s->fd, s->open_flags);
+    } else {
+
+        /* close and reopen using new flags */
+        bs->drv->bdrv_close(bs);
+        ret = bs->drv->bdrv_file_open(bs, bs->filename, flags);
+    }
+    return ret;
+}
+
+static void raw_reopen_commit(BlockDriverState *bs, BDRVReopenState *rs)
+{
+    BDRVRawReopenState *raw_rs;
+
+    raw_rs = container_of(rs, BDRVRawReopenState, reopen_state);
+
+    /* clean up stashed state */
+    close(raw_rs->stash_s->fd);
+    g_free(raw_rs->stash_s);
+    g_free(raw_rs);
+}
+
+static void raw_reopen_abort(BlockDriverState *bs, BDRVReopenState *rs)
+{
+    BDRVRawReopenState *raw_rs;
+    BDRVRawState *s = bs->opaque;
+
+    raw_rs = container_of(rs, BDRVRawReopenState, reopen_state);
+
+    /* revert to stashed state */
+    if (s->fd != -1) {
+        close(s->fd);
+    }
+    raw_revert_state(s, raw_rs->stash_s);
+    g_free(raw_rs->stash_s);
+    g_free(raw_rs);
+}
+
+static void raw_stash_state(BDRVRawState *stashed_s, BDRVRawState *s)
+{
+    stashed_s->fd = -1;
+    stashed_s->type = s->type;
+    stashed_s->open_flags = s->open_flags;
+#if defined(__linux__)
+    /* linux floppy specific */
+    stashed_s->fd_open_time = s->fd_open_time;
+    stashed_s->fd_error_time = s->fd_error_time;
+    stashed_s->fd_got_error = s->fd_got_error;
+    stashed_s->fd_media_changed = s->fd_media_changed;
+#endif
+#ifdef CONFIG_LINUX_AIO
+    stashed_s->use_aio = s->use_aio;
+    stashed_s->aio_ctx = s->aio_ctx;
+#endif
+    stashed_s->aligned_buf = s->aligned_buf;
+    stashed_s->aligned_buf_size = s->aligned_buf_size;
+#ifdef CONFIG_XFS
+    stashed_s->is_xfs = s->is_xfs;
+#endif
+
+}
+
+static void raw_revert_state(BDRVRawState *s, BDRVRawState *stashed_s)
+{
+
+    s->fd = stashed_s->fd;
+    s->type = stashed_s->type;
+    s->open_flags = stashed_s->open_flags;
+#if defined(__linux__)
+    /* linux floppy specific */
+    s->fd_open_time = stashed_s->fd_open_time;
+    s->fd_error_time = stashed_s->fd_error_time;
+    s->fd_got_error = stashed_s->fd_got_error;
+    s->fd_media_changed = stashed_s->fd_media_changed;
+#endif
+#ifdef CONFIG_LINUX_AIO
+    s->use_aio = stashed_s->use_aio;
+    s->aio_ctx = stashed_s->aio_ctx;
+#endif
+    s->aligned_buf = stashed_s->aligned_buf;
+    s->aligned_buf_size = stashed_s->aligned_buf_size;
+#ifdef CONFIG_XFS
+    s->is_xfs = stashed_s->is_xfs;
+#endif
 }
 
 /* XXX: use host sector size if necessary with:
@@ -735,6 +853,9 @@ static BlockDriver bdrv_file = {
     .instance_size = sizeof(BDRVRawState),
     .bdrv_probe = NULL, /* no probe for protocols */
     .bdrv_file_open = raw_open,
+    .bdrv_reopen_prepare = raw_reopen_prepare,
+    .bdrv_reopen_commit = raw_reopen_commit,
+    .bdrv_reopen_abort = raw_reopen_abort,
     .bdrv_close = raw_close,
     .bdrv_create = raw_create,
     .bdrv_co_discard = raw_co_discard,
