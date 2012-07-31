@@ -1374,7 +1374,7 @@ int bdrv_commit(BlockDriverState *bs)
 
     if (!drv)
         return -ENOMEDIUM;
-    
+
     if (!bs->backing_hd) {
         return -ENOTSUP;
     }
@@ -1626,6 +1626,110 @@ int bdrv_change_backing_file(BlockDriverState *bs,
     }
     return ret;
 }
+
+typedef struct BlkIntermediateStates {
+    BlockDriverState *bs;
+    QSIMPLEQ_ENTRY(BlkIntermediateStates) entry;
+} BlkIntermediateStates;
+
+
+/* deletes images above 'base' up to and including 'top', and sets the image
+ * above 'top' to have base as its backing file.
+ */
+int bdrv_delete_intermediate(BlockDriverState *active, BlockDriverState *top,
+                             BlockDriverState *base)
+{
+    BlockDriverState *intermediate;
+    BlockDriverState *base_bs = NULL;
+    BlockDriverState *new_top_bs = NULL;
+    BlkIntermediateStates *intermediate_state, *next;
+    int ret = -1;
+
+    QSIMPLEQ_HEAD(states_to_delete, BlkIntermediateStates) states_to_delete;
+    QSIMPLEQ_INIT(&states_to_delete);
+
+    if (!top->drv || !base->drv) {
+        goto exit;
+    }
+
+    /* special case of top->backing_hd already pointing to base - nothing
+     * to do, no intermediate images
+     */
+    if (top->backing_hd == base) {
+        ret = 0;
+        goto exit;
+    }
+
+    /* if the active bs layer is the same as the new top, then there
+     * is no image above the top, so it is also the new_top (and we must
+     * not delete it below, either)
+     */
+    if (active == top) {
+        new_top_bs = active;
+    } else {
+        intermediate = active;
+        while (intermediate->backing_hd) {
+            if (intermediate->backing_hd == top) {
+                new_top_bs = intermediate;
+                break;
+            }
+            intermediate = intermediate->backing_hd;
+        }
+    }
+
+    if (new_top_bs == NULL) {
+        /* we could not find the image above 'top', this is an error */
+        goto exit;
+    }
+
+    /* if the active and top image passed in are the same, then we
+     * can't delete the active, so we start one below
+     */
+    intermediate = (active == top) ? active->backing_hd : top;
+
+    /* now we will go down through the list, and add each BDS we find
+     * into our deletion queue, until we hit the 'base'
+     */
+    while (intermediate) {
+        intermediate_state = g_malloc0(sizeof(BlkIntermediateStates));
+        intermediate_state->bs = intermediate;
+        QSIMPLEQ_INSERT_TAIL(&states_to_delete, intermediate_state, entry);
+
+        if (intermediate->backing_hd == base) {
+            base_bs = intermediate->backing_hd;
+            break;
+        }
+        intermediate = intermediate->backing_hd;
+    }
+    if (base_bs == NULL) {
+        /* something went wrong, we did not end at the base. safely
+         * unravel everything, and exit with error */
+        goto exit;
+    }
+
+    /* success - we can delete the intermediate states, and link top->base */
+    ret = bdrv_change_backing_file(new_top_bs, base_bs->filename,
+                                   base_bs->drv ? base_bs->drv->format_name : "");
+    if (ret) {
+        goto exit;
+    }
+    new_top_bs->backing_hd = base_bs;
+
+
+    QSIMPLEQ_FOREACH_SAFE(intermediate_state, &states_to_delete, entry, next) {
+        /* so that bdrv_close() does not recursively close the chain */
+        intermediate_state->bs->backing_hd = NULL;
+        bdrv_delete(intermediate_state->bs);
+    }
+    ret = 0;
+
+exit:
+    QSIMPLEQ_FOREACH_SAFE(intermediate_state, &states_to_delete, entry, next) {
+        g_free(intermediate_state);
+    }
+    return ret;
+}
+
 
 static int bdrv_check_byte_request(BlockDriverState *bs, int64_t offset,
                                    size_t size)
@@ -2848,6 +2952,36 @@ BlockDriverState *bdrv_find_backing_image(BlockDriverState *bs,
     }
 
     return NULL;
+}
+
+BlockDriverState *bdrv_find_image(BlockDriverState *bs,
+                                  const char *filename)
+{
+    if (!bs || !bs->drv) {
+        return NULL;
+    }
+
+    if (strcmp(bs->filename, filename) == 0) {
+        return bs;
+    } else {
+        return bdrv_find_image(bs->backing_hd, filename);
+    }
+}
+
+BlockDriverState *bdrv_find_base(BlockDriverState *bs)
+{
+    BlockDriverState *curr_bs = NULL;
+
+    if (!bs) {
+        return NULL;
+    }
+
+    curr_bs = bs;
+
+    while (curr_bs->backing_hd) {
+        curr_bs = curr_bs->backing_hd;
+    }
+    return curr_bs;
 }
 
 #define NB_SUFFIXES 4

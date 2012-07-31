@@ -184,6 +184,10 @@ int bdrv_change_backing_file(BlockDriverState *bs,
     const char *backing_file, const char *backing_fmt);
 void bdrv_register(BlockDriver *bdrv);
 void bdrv_change_hostcache(BlockDriverState *bs, bool enable, Error **errp);
+BlockDriverState *bdrv_find_image(BlockDriverState *bs, const char *filename);
+BlockDriverState *bdrv_find_base(BlockDriverState *bs);
+int bdrv_delete_intermediate(BlockDriverState *active, BlockDriverState *top,
+                             BlockDriverState *base);
 
 
 typedef struct BdrvCheckResult {
