@@ -1369,6 +1369,39 @@
   'returns': 'str' }
 
 ##
+# @block-commit
+#
+# Live commit of data from child image nodes into parent nodes - i.e.,
+# writes data between 'top' and 'base' into 'base'.
+#
+# @device:  the name of the device
+#
+# @base:   #optional The parent image of the device to write data into.
+#                    If not specified, this is the original parent image.
+#
+# @top:    #optional The child image, above which data will not be commited
+#                    down.  If not specified, this is the active layer.
+#
+# @speed:  #optional the maximum speed, in bytes per second
+#
+# @on_error: #optional the action to take on an error (default report)
+#
+# Returns: Nothing on success
+#          If commit or stream is already active on this device, DeviceInUse
+#          If @device does not exist, DeviceNotFound
+#          If image commit is not supported by this device, NotSupported
+#          If @base does not exist, BaseNotFound
+#          If @top does not exist, TopNotFound
+#          If @speed is invalid, InvalidParameter
+#
+# Since: 1.2
+#
+##
+{ 'command': 'block-commit',
+  'data': { 'device': 'str', '*base': 'str', '*top': 'str',
+            '*speed': 'int', '*on_error': 'BlockdevOnError' } }
+
+##
 # @drive-mirror
 #
 # Start mirroring a block device's writes to a new destination.
