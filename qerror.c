@@ -299,6 +299,10 @@ static const QErrorStringTable qerror_table[] = {
         .desc      = "Too many open files",
     },
     {
+        .error_fmt = QERR_TOP_NOT_FOUND,
+        .desc      = "Top '%(top)' not found",
+    },
+    {
         .error_fmt = QERR_UNDEFINED_ERROR,
         .desc      = "An undefined error has occurred",
     },

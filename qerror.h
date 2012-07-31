@@ -245,6 +245,9 @@ QError *qobject_to_qerror(const QObject *obj);
 #define QERR_TOO_MANY_FILES \
     "{ 'class': 'TooManyFiles', 'data': {} }"
 
+#define QERR_TOP_NOT_FOUND \
+    "{ 'class': 'TopNotFound', 'data': { 'top': %s } }"
+
 #define QERR_UNDEFINED_ERROR \
     "{ 'class': 'UndefinedError', 'data': {} }"
 
