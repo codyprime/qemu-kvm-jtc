@@ -9,4 +9,4 @@ block-obj-$(CONFIG_LIBISCSI) += iscsi.o
 block-obj-$(CONFIG_CURL) += curl.o
 block-obj-$(CONFIG_RBD) += rbd.o
 
-common-obj-y += stream.o mirror.o
+common-obj-y += stream.o mirror.o commit.o
