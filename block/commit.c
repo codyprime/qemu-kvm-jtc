@@ -135,10 +135,10 @@ wait:
     /* restore base open flags here if appropriate (e.g., change the base back
      * to r/o) */
     if (s->base_flags != bdrv_get_flags(base)) {
-        bdrv_reopen(base, s->base_flags);
+        bdrv_reopen(base, s->base_flags, NULL);
     }
     if (s->top_flags != bdrv_get_flags(top)) {
-        bdrv_reopen(top, s->top_flags);
+        bdrv_reopen(top, s->top_flags, NULL);
     }
 
     qemu_vfree(buf);
