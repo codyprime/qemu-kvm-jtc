@@ -78,7 +78,14 @@ typedef struct BDRVQcowState {
     Error *migration_blocker;
 } BDRVQcowState;
 
+typedef struct BDRVQcowReopenState {
+    BDRVReopenState reopen_state;
+    BDRVQcowState *stash_s;
+} BDRVQcowReopenState;
+
 static int decompress_cluster(BlockDriverState *bs, uint64_t cluster_offset);
+static void qcow_stash_state(BDRVQcowState *stash_s, BDRVQcowState *s);
+static void qcow_revert_state(BDRVQcowState *s, BDRVQcowState *stash_s);
 
 static int qcow_probe(const uint8_t *buf, int buf_size, const char *filename)
 {
@@ -195,6 +202,103 @@ static int qcow_open(BlockDriverState *bs, int flags)
     g_free(s->cluster_cache);
     g_free(s->cluster_data);
     return ret;
+}
+
+static int qcow_reopen_prepare(BlockDriverState *bs, BDRVReopenState **prs,
+                                         int flags)
+{
+    BDRVQcowReopenState *qcow_rs = g_malloc0(sizeof(BDRVQcowReopenState));
+    int ret = 0;
+    BDRVQcowState *s = bs->opaque;
+
+    qcow_rs->reopen_state.bs = bs;
+    qcow_rs->stash_s = g_malloc0(sizeof(BDRVQcowState));
+    qcow_stash_state(qcow_rs->stash_s, s);
+    *prs = &(qcow_rs->reopen_state);
+
+    ret = qcow_open(bs, flags);
+    return ret;
+}
+
+static void qcow_reopen_commit(BlockDriverState *bs, BDRVReopenState *rs)
+{
+    BDRVQcowReopenState *qcow_rs;
+
+    qcow_rs = container_of(rs, BDRVQcowReopenState, reopen_state);
+    g_free(qcow_rs->stash_s);
+    g_free(qcow_rs);
+}
+
+static void qcow_reopen_abort(BlockDriverState *bs, BDRVReopenState *rs)
+{
+    BDRVQcowReopenState *qcow_rs;
+    BDRVQcowState *s = bs->opaque;
+
+    qcow_rs = container_of(rs, BDRVQcowReopenState, reopen_state);
+
+    /* revert to stashed state */
+    qcow_revert_state(s, qcow_rs->stash_s);
+
+    g_free(qcow_rs->stash_s);
+    g_free(qcow_rs);
+}
+
+static void qcow_stash_state(BDRVQcowState *stash_s, BDRVQcowState *s)
+{
+    int i;
+
+    stash_s->cluster_bits = s->cluster_bits;
+    stash_s->cluster_size = s->cluster_size;
+    stash_s->cluster_sectors = s->cluster_sectors;
+    stash_s->l2_bits = s->l2_bits;
+    stash_s->l2_size = s->l2_size;
+    stash_s->l1_size = s->l1_size;
+    stash_s->cluster_offset_mask = s->cluster_offset_mask;
+    stash_s->l1_table_offset = s->l1_table_offset;
+    stash_s->l1_table = s->l1_table;
+    stash_s->l2_cache = s->l2_cache;
+    for (i = 0; i < L2_CACHE_SIZE; i++) {
+        stash_s->l2_cache_offsets[i] = s->l2_cache_offsets[i];
+        stash_s->l2_cache_counts[i] = s->l2_cache_counts[i];
+    }
+    stash_s->cluster_cache = s->cluster_cache;
+    stash_s->cluster_data = s->cluster_data;
+    stash_s->cluster_cache_offset = s->cluster_cache_offset;
+    stash_s->crypt_method = s->crypt_method;
+    stash_s->crypt_method_header = s->crypt_method_header;
+    stash_s->aes_encrypt_key = s->aes_encrypt_key;
+    stash_s->aes_decrypt_key = s->aes_decrypt_key;
+    stash_s->lock = s->lock;
+    stash_s->migration_blocker = s->migration_blocker;
+}
+
+static void qcow_revert_state(BDRVQcowState *s, BDRVQcowState *stash_s)
+{
+    int i;
+
+    s->cluster_bits = stash_s->cluster_bits;
+    s->cluster_size = stash_s->cluster_size;
+    s->cluster_sectors = stash_s->cluster_sectors;
+    s->l2_bits = stash_s->l2_bits;
+    s->l2_size = stash_s->l2_size;
+    s->l1_size = stash_s->l1_size;
+    s->cluster_offset_mask = stash_s->cluster_offset_mask;
+    s->l1_table_offset = stash_s->l1_table_offset;
+    s->l1_table = stash_s->l1_table;
+    s->l2_cache = stash_s->l2_cache;
+    for (i = 0; i < L2_CACHE_SIZE; i++) {
+        s->l2_cache_offsets[i] = s->l2_cache_offsets[i];
+        s->l2_cache_counts[i] = stash_s->l2_cache_counts[i];
+    }
+    s->cluster_cache = stash_s->cluster_cache;
+    s->cluster_data = stash_s->cluster_data;
+    s->cluster_cache_offset = stash_s->cluster_cache_offset;
+    s->crypt_method = stash_s->crypt_method;
+    s->crypt_method_header = stash_s->crypt_method_header;
+    s->aes_encrypt_key = stash_s->aes_encrypt_key;
+    s->aes_decrypt_key = stash_s->aes_decrypt_key;
+    s->lock = stash_s->lock;
+    s->migration_blocker = stash_s->migration_blocker;
 }
 
 static int qcow_set_key(BlockDriverState *bs, const char *key)
@@ -869,6 +973,10 @@ static BlockDriver bdrv_qcow = {
     .bdrv_open		= qcow_open,
     .bdrv_close		= qcow_close,
     .bdrv_create	= qcow_create,
+
+    .bdrv_reopen_prepare    = qcow_reopen_prepare,
+    .bdrv_reopen_commit     = qcow_reopen_commit,
+    .bdrv_reopen_abort      = qcow_reopen_abort,
 
     .bdrv_co_readv          = qcow_co_readv,
     .bdrv_co_writev         = qcow_co_writev,
