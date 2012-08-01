@@ -866,6 +866,15 @@ void hmp_block_set_io_throttle(Monitor *mon, const QDict *qdict)
     hmp_handle_error(mon, &err);
 }
 
+void hmp_block_set_hostcache(Monitor *mon, const QDict *qdict)
+{
+    Error *err = NULL;
+
+    qmp_block_set_hostcache(qdict_get_str(qdict, "device"),
+                              qdict_get_bool(qdict, "option"), &err);
+    hmp_handle_error(mon, &err);
+}
+
 void hmp_block_stream(Monitor *mon, const QDict *qdict)
 {
     Error *error = NULL;

@@ -1055,6 +1055,30 @@ Example:
 EQMP
 
     {
+        .name       = "block_set_hostcache",
+        .args_type  = "device:B,option:b",
+        .mhandler.cmd_new = qmp_marshal_input_block_set_hostcache,
+    },
+
+SQMP
+block_set_hostcache
+-------------------
+
+Change host pagecache setting of a block device
+
+Arguments:
+
+- "device": the device's ID, must be unique (json-string)
+- "option": hostcache setting (json-bool)
+
+Example:
+-> { +"execute": "block_set_hostcache", "arguments": { "device": "ide0-hd0", "option": false } }
+<- { "return": {} }
+
+EQMP
+
+
+    {
         .name       = "set_password",
         .args_type  = "protocol:s,password:s,connected:s?",
         .mhandler.cmd_new = qmp_marshal_input_set_password,

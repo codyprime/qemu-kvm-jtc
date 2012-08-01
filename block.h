@@ -183,6 +183,7 @@ int bdrv_commit_all(void);
 int bdrv_change_backing_file(BlockDriverState *bs,
     const char *backing_file, const char *backing_fmt);
 void bdrv_register(BlockDriver *bdrv);
+void bdrv_change_hostcache(BlockDriverState *bs, bool enable, Error **errp);
 
 
 typedef struct BdrvCheckResult {

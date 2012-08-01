@@ -1377,3 +1377,22 @@ BlockJobInfoList *qmp_query_block_jobs(Error **errp)
     bdrv_iterate(do_qmp_query_block_jobs_one, &prev);
     return dummy.next;
 }
+
+/*
+ * Change host page cache setting while guest is running.
+*/
+void qmp_block_set_hostcache(const char *device, bool enable,
+                             Error **errp)
+{
+    BlockDriverState *bs = NULL;
+
+    /* Validate device */
+    bs = bdrv_find(device);
+    if (!bs) {
+        error_set(errp, QERR_DEVICE_NOT_FOUND, device);
+        return;
+    }
+
+    bdrv_change_hostcache(bs, enable, errp);
+    return;
+}

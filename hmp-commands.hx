@@ -1409,6 +1409,21 @@ passed since 1970, i.e. unix epoch.
 ETEXI
 
     {
+        .name       = "block_set_hostcache",
+        .args_type  = "device:B,option:b",
+        .params     = "device on|off",
+        .help       = "Change setting of host pagecache",
+        .mhandler.cmd = hmp_block_set_hostcache,
+    },
+
+STEXI
+@item block_set_hostcache @var{device} @var{option}
+@findex block_set_hostcache
+Change host pagecache setting of a block device while guest is running.
+ETEXI
+
+
+    {
         .name       = "info",
         .args_type  = "item:s?",
         .params     = "[subcommand]",

@@ -1724,6 +1724,23 @@
             'iops': 'int', 'iops_rd': 'int', 'iops_wr': 'int' } }
 
 ##
+# @block_set_hostcache:
+#
+# Change host pagecache setting of a block device
+#
+# @device: name of the block device
+#
+# @option: hostcache setting (true/false)
+#
+# Returns: Nothing on success
+#          If @device is not a valid block device, DeviceNotFound
+#
+# Since: 1.2
+##
+{ 'command': 'block_set_hostcache',
+  'data': { 'device': 'str', 'option': 'bool' } }
+
+##
 # @block-stream:
 #
 # Copy data from a backing file into a block device.

@@ -991,6 +991,30 @@ void bdrv_close_all(void)
     }
 }
 
+void bdrv_change_hostcache(BlockDriverState *bs, bool enable, Error **errp)
+{
+    int bdrv_flags = bs->open_flags;
+
+    /* set hostcache flags (without changing WCE/flush bits) */
+    if (enable) {
+        bdrv_flags &= ~BDRV_O_NOCACHE;
+    } else {
+        bdrv_flags |= BDRV_O_NOCACHE;
+    }
+
+    /* If no change in flags, no need to reopen */
+    if (bdrv_flags != bs->open_flags) {
+        if (bdrv_is_inserted(bs)) {
+            /* Reopen file with changed set of flags */
+            bdrv_flags &= ~BDRV_O_CACHE_WB;
+            bdrv_reopen(bs, bdrv_flags, errp);
+        } else {
+            /* Save hostcache change for future use */
+            bs->open_flags = bdrv_flags;
+        }
+    }
+}
+
 /*
  * Wait for pending requests to complete across all BlockDriverStates
  *
