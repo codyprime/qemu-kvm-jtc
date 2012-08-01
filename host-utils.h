@@ -24,6 +24,7 @@
  */
 
 #include "compiler.h"   /* QEMU_GNUC_PREREQ */
+#include <string.h>     /* ffsl */
 
 #if defined(__x86_64__)
 #define __HAVE_FAST_MULU64__
@@ -234,3 +235,48 @@ static inline int ctpop64(uint64_t val)
     return val;
 #endif
 }
+
+/* glibc does not provide an inline version of ffsl, so always define
+ * ours.
+ */
+#ifdef __GLIBC__
+#define ffsl qemu_ffsl
+#endif
+static inline int ffsl(long val)
+{
+    if (!val) {
+        return 0;
+    }
+
+#if QEMU_GNUC_PREREQ(3, 4)
+    return __builtin_ctzl(val) + 1;
+#else
+    if (sizeof(long) == 4) {
+        return ctz32(val) + 1;
+    } else if (sizeof(long) == 8) {
+        return ctz64(val) + 1;
+    } else {
+        abort();
+    }
+#endif
+}
+
+static inline int flsl(long val)
+{
+    if (!val) {
+        return 0;
+    }
+
+#if QEMU_GNUC_PREREQ(3, 4)
+    return __builtin_clzl(val) + 1;
+#else
+    if (sizeof(long) == 4) {
+        return clz32(val) + 1;
+    } else if (sizeof(long) == 8) {
+        return clz64(val) + 1;
+    } else {
+        abort();
+    }
+#endif
+}
+

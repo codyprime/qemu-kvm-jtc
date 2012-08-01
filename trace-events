@@ -75,9 +75,26 @@ bdrv_co_do_copy_on_readv(void *bs, int64_t sector_num, int nb_sectors, int64_t c
 stream_one_iteration(void *s, int64_t sector_num, int nb_sectors, int is_allocated) "s %p sector_num %"PRId64" nb_sectors %d is_allocated %d"
 stream_start(void *bs, void *base, void *s, void *co, void *opaque) "bs %p base %p s %p co %p opaque %p"
 
+# block/mirror.c
+mirror_start(void *bs, void *s, void *co, void *opaque) "bs %p s %p co %p opaque %p"
+mirror_restart_iter(void *s, int64_t cnt) "s %p dirty count %"PRId64
+mirror_before_flush(void *s) "s %p"
+mirror_before_drain(void *s, int64_t cnt) "s %p dirty count %"PRId64
+mirror_before_sleep(void *s, int64_t cnt, int synced) "s %p dirty count %"PRId64" synced %d"
+mirror_one_iteration(void *s, int64_t sector_num, int nb_sectors) "s %p sector_num %"PRId64" nb_sectors %d"
+mirror_cow(void *s, int64_t sector_num) "s %p sector_num %"PRId64
+mirror_iteration_done(void *s, int64_t sector_num, int nb_sectors) "s %p sector_num %"PRId64" nb_sectors %d"
+mirror_yield(void *s, int64_t cnt, int buf_free_count, int in_flight) "s %p dirty count %"PRId64" free buffers %d in_flight %d"
+mirror_yield_in_flight(void *s, int64_t sector_num, int in_flight) "s %p sector_num %"PRId64" in_flight %d"
+mirror_yield_buf_busy(void *s, int nb_chunks, int in_flight) "s %p requested chunks %d in_flight %d"
+mirror_break_buf_busy(void *s, int nb_chunks, int in_flight) "s %p requested chunks %d in_flight %d"
+
 # blockdev.c
 qmp_block_job_cancel(void *job) "job %p"
-block_stream_cb(void *bs, void *job, int ret) "bs %p job %p ret %d"
+qmp_block_job_pause(void *job) "job %p"
+qmp_block_job_resume(void *job) "job %p"
+qmp_block_job_complete(void *job) "job %p"
+block_job_cb(void *bs, void *job, int ret) "bs %p job %p ret %d"
 qmp_block_stream(void *bs, void *job) "bs %p job %p"
 
 # hw/virtio-blk.c
@@ -597,7 +614,6 @@ megasas_dcmd_ld_get_list(int cmd, int num, int max) "scmd %d: DCMD LD get list: 
 megasas_dcmd_ld_get_info(int cmd, int ld_id) "scmd %d: DCMD LD get info for dev %d"
 megasas_dcmd_pd_get_info(int cmd, int pd_id) "scmd %d: DCMD PD get info for dev %d"
 megasas_dcmd_pd_list_query(int cmd, int flags) "scmd %d: DCMD PD list query flags %x"
-megasas_dcmd_unsupported(int cmd, unsigned long size) "scmd %d: set properties len %ld"
 megasas_abort_frame(int cmd, int abort_cmd) "scmd %d: aborting frame %x"
 megasas_abort_no_cmd(int cmd, uint64_t context) "scmd %d: no active command for frame context %" PRIx64 ""
 megasas_abort_invalid_context(int cmd, uint64_t context, int abort_cmd) "scmd %d: invalid frame context %" PRIx64 " for abort frame %x"
@@ -970,3 +986,8 @@ qxl_render_blit_guest_primary_initialized(void) ""
 qxl_render_blit(int32_t stride, int32_t left, int32_t right, int32_t top, int32_t bottom) "stride=%d [%d, %d, %d, %d]"
 qxl_render_guest_primary_resized(int32_t width, int32_t height, int32_t stride, int32_t bytes_pp, int32_t bits_pp) "%dx%d, stride %d, bpp %d, depth %d"
 qxl_render_update_area_done(void *cookie) "%p"
+
+# hbitmap.c
+hbitmap_iter_next(void *hb, void *hbi, int64_t item, int64_t bit) "hb %p hbi %p item %"PRId64" bit %"PRId64
+hbitmap_reset(void *hb, uint64_t start, uint64_t count, uint64_t sbit, uint64_t ebit) "hb %p items %"PRIu64",%"PRIu64" bits %"PRIu64"..%"PRIu64
+hbitmap_set(void *hb, uint64_t start, uint64_t count, uint64_t sbit, uint64_t ebit) "hb %p items %"PRIu64",%"PRIu64" bits %"PRIu64"..%"PRIu64

@@ -7,8 +7,10 @@
  * later.  See the COPYING file in the top-level directory.
  */
 
+#include "block.h"
 #include "blockdev.h"
 #include "hw/block-common.h"
+#include "blockjob.h"
 #include "monitor.h"
 #include "qerror.h"
 #include "qemu-option.h"
@@ -19,6 +21,8 @@
 #include "qmp-commands.h"
 #include "trace.h"
 #include "arch_init.h"
+
+static void block_job_cb(void *opaque, int ret);
 
 static QTAILQ_HEAD(drivelist, DriveInfo) drives = QTAILQ_HEAD_INITIALIZER(drives);
 
@@ -240,13 +244,13 @@ static void drive_put_ref_bh_schedule(DriveInfo *dinfo)
 static int parse_block_error_action(const char *buf, int is_read)
 {
     if (!strcmp(buf, "ignore")) {
-        return BLOCK_ERR_IGNORE;
+        return BLOCKDEV_ON_ERROR_IGNORE;
     } else if (!is_read && !strcmp(buf, "enospc")) {
-        return BLOCK_ERR_STOP_ENOSPC;
+        return BLOCKDEV_ON_ERROR_ENOSPC;
     } else if (!strcmp(buf, "stop")) {
-        return BLOCK_ERR_STOP_ANY;
+        return BLOCKDEV_ON_ERROR_STOP;
     } else if (!strcmp(buf, "report")) {
-        return BLOCK_ERR_REPORT;
+        return BLOCKDEV_ON_ERROR_REPORT;
     } else {
         error_report("'%s' invalid %s error action",
                      buf, is_read ? "read" : "write");
@@ -431,7 +435,7 @@ DriveInfo *drive_init(QemuOpts *opts, int default_to_scsi)
         return NULL;
     }
 
-    on_write_error = BLOCK_ERR_STOP_ENOSPC;
+    on_write_error = BLOCKDEV_ON_ERROR_ENOSPC;
     if ((buf = qemu_opt_get(opts, "werror")) != NULL) {
         if (type != IF_IDE && type != IF_SCSI && type != IF_VIRTIO && type != IF_NONE) {
             error_report("werror is not supported by this bus type");
@@ -444,7 +448,7 @@ DriveInfo *drive_init(QemuOpts *opts, int default_to_scsi)
         }
     }
 
-    on_read_error = BLOCK_ERR_REPORT;
+    on_read_error = BLOCKDEV_ON_ERROR_REPORT;
     if ((buf = qemu_opt_get(opts, "rerror")) != NULL) {
         if (type != IF_IDE && type != IF_VIRTIO && type != IF_SCSI && type != IF_NONE) {
             error_report("rerror is not supported by this bus type");
@@ -824,6 +828,146 @@ exit:
     return;
 }
 
+#define DEFAULT_MIRROR_BUF_SIZE   (10 << 20)
+
+void qmp_drive_mirror(const char *device, const char *target,
+                      bool has_format, const char *format,
+                      enum MirrorSyncMode sync,
+                      bool has_mode, enum NewImageMode mode,
+                      bool has_speed, int64_t speed,
+                      bool has_granularity, int64_t granularity,
+                      bool has_buf_size, int64_t buf_size,
+                      bool has_on_source_error, BlockdevOnError on_source_error,
+                      bool has_on_target_error, BlockdevOnError on_target_error,
+                      Error **errp)
+{
+    BlockDriverState *bs;
+    BlockDriverState *source, *target_bs;
+    BlockDriver *proto_drv;
+    BlockDriver *drv = NULL;
+    Error *local_err = NULL;
+    int flags;
+    uint64_t size;
+    int ret;
+
+    if (!has_on_source_error) {
+        on_source_error = BLOCKDEV_ON_ERROR_REPORT;
+    }
+    if (!has_on_target_error) {
+        on_target_error = BLOCKDEV_ON_ERROR_REPORT;
+    }
+    if (!has_mode) {
+        mode = NEW_IMAGE_MODE_ABSOLUTE_PATHS;
+    }
+    if (!has_granularity) {
+        granularity = 65536;
+    }
+    if (!has_buf_size) {
+        buf_size = DEFAULT_MIRROR_BUF_SIZE;
+    }
+
+    if (granularity < 512 || granularity > 1048576 * 64) {
+        error_set(errp, QERR_INVALID_PARAMETER, device);
+        return;
+    }
+    if (granularity & (granularity - 1)) {
+        error_set(errp, QERR_INVALID_PARAMETER, device);
+        return;
+    }
+
+    bs = bdrv_find(device);
+    if (!bs) {
+        error_set(errp, QERR_DEVICE_NOT_FOUND, device);
+        return;
+    }
+
+    if (!has_format) {
+        format = mode == NEW_IMAGE_MODE_EXISTING ? NULL : bs->drv->format_name;
+    }
+    if (format) {
+        drv = bdrv_find_format(format);
+        if (!drv) {
+            error_set(errp, QERR_INVALID_BLOCK_FORMAT, format);
+            return;
+        }
+    }
+
+    if (!bdrv_is_inserted(bs)) {
+        error_set(errp, QERR_DEVICE_HAS_NO_MEDIUM, device);
+        return;
+    }
+
+    if (bdrv_in_use(bs)) {
+        error_set(errp, QERR_DEVICE_IN_USE, device);
+        return;
+    }
+
+    flags = bs->open_flags | BDRV_O_RDWR;
+    source = bs->backing_hd;
+    if (!source && sync == MIRROR_SYNC_MODE_TOP) {
+        sync = MIRROR_SYNC_MODE_FULL;
+    }
+
+    proto_drv = bdrv_find_protocol(target);
+    if (!proto_drv) {
+        error_set(errp, QERR_INVALID_BLOCK_FORMAT, format);
+        return;
+    }
+
+    if (sync == MIRROR_SYNC_MODE_FULL && mode != NEW_IMAGE_MODE_EXISTING) {
+        /* create new image w/o backing file */
+        assert(format && drv);
+        bdrv_get_geometry(bs, &size);
+        size *= 512;
+        ret = bdrv_img_create(target, format,
+                              NULL, NULL, NULL, size, flags);
+    } else {
+        switch (mode) {
+        case NEW_IMAGE_MODE_EXISTING:
+            ret = 0;
+            break;
+        case NEW_IMAGE_MODE_ABSOLUTE_PATHS:
+            /* create new image with backing file */
+            ret = bdrv_img_create(target, format,
+                                  source->filename,
+                                  source->drv->format_name,
+                                  NULL, -1, flags);
+            break;
+        default:
+            abort();
+        }
+    }
+
+    if (ret) {
+        error_set(errp, QERR_OPEN_FILE_FAILED, target);
+        return;
+    }
+
+    target_bs = bdrv_new("");
+    ret = bdrv_open(target_bs, target, flags | BDRV_O_NO_BACKING, drv);
+
+    if (ret < 0) {
+        bdrv_delete(target_bs);
+        error_set(errp, QERR_OPEN_FILE_FAILED, target);
+        return;
+    }
+
+    mirror_start(bs, target_bs, speed, granularity, buf_size, sync,
+                 on_source_error, on_target_error,
+                 block_job_cb, bs, &local_err);
+    if (local_err != NULL) {
+        bdrv_delete(target_bs);
+        error_propagate(errp, local_err);
+        return;
+    }
+
+    /* Grab a reference so hotplug does not delete the BlockDriverState from
+     * underneath us.
+     */
+    drive_get_ref(drive_get_by_blockdev(bs));
+}
+
+
 
 static void eject_device(BlockDriverState *bs, int force, Error **errp)
 {
@@ -1062,12 +1206,12 @@ static QObject *qobject_from_block_job(BlockJob *job)
                               job->speed);
 }
 
-static void block_stream_cb(void *opaque, int ret)
+static void block_job_cb(void *opaque, int ret)
 {
     BlockDriverState *bs = opaque;
     QObject *obj;
 
-    trace_block_stream_cb(bs, bs->job, ret);
+    trace_block_job_cb(bs, bs->job, ret);
 
     assert(bs->job);
     obj = qobject_from_block_job(bs->job);
@@ -1087,12 +1231,17 @@ static void block_stream_cb(void *opaque, int ret)
 }
 
 void qmp_block_stream(const char *device, bool has_base,
-                      const char *base, bool has_speed,
-                      int64_t speed, Error **errp)
+                      const char *base, bool has_speed, int64_t speed,
+                      bool has_on_error, BlockdevOnError on_error,
+                      Error **errp)
 {
     BlockDriverState *bs;
     BlockDriverState *base_bs = NULL;
     Error *local_err = NULL;
+
+    if (!has_on_error) {
+        on_error = BLOCKDEV_ON_ERROR_REPORT;
+    }
 
     bs = bdrv_find(device);
     if (!bs) {
@@ -1109,7 +1258,7 @@ void qmp_block_stream(const char *device, bool has_base,
     }
 
     stream_start(bs, base_bs, base, has_speed ? speed : 0,
-                 block_stream_cb, bs, &local_err);
+                 on_error, block_job_cb, bs, &local_err);
     if (error_is_set(&local_err)) {
         error_propagate(errp, local_err);
         return;
@@ -1139,24 +1288,72 @@ void qmp_block_job_set_speed(const char *device, int64_t speed, Error **errp)
     BlockJob *job = find_block_job(device);
 
     if (!job) {
-        error_set(errp, QERR_DEVICE_NOT_ACTIVE, device);
+        error_set(errp, QERR_BLOCK_JOB_NOT_ACTIVE, device);
         return;
     }
 
     block_job_set_speed(job, speed, errp);
 }
 
-void qmp_block_job_cancel(const char *device, Error **errp)
+void qmp_block_job_cancel(const char *device,
+                          bool has_force, bool force, Error **errp)
 {
     BlockJob *job = find_block_job(device);
 
+    if (!has_force) {
+        force = false;
+    }
+
     if (!job) {
-        error_set(errp, QERR_DEVICE_NOT_ACTIVE, device);
+        error_set(errp, QERR_BLOCK_JOB_NOT_ACTIVE, device);
+        return;
+    }
+    if (job->paused && !force) {
+        error_set(errp, QERR_BLOCK_JOB_PAUSED, device);
         return;
     }
 
     trace_qmp_block_job_cancel(job);
     block_job_cancel(job);
+}
+
+void qmp_block_job_pause(const char *device, Error **errp)
+{
+    BlockJob *job = find_block_job(device);
+
+    if (!job) {
+        error_set(errp, QERR_BLOCK_JOB_NOT_ACTIVE, device);
+        return;
+    }
+
+    trace_qmp_block_job_pause(job);
+    block_job_pause(job);
+}
+
+void qmp_block_job_resume(const char *device, Error **errp)
+{
+    BlockJob *job = find_block_job(device);
+
+    if (!job) {
+        error_set(errp, QERR_BLOCK_JOB_NOT_ACTIVE, device);
+        return;
+    }
+
+    trace_qmp_block_job_resume(job);
+    block_job_resume(job);
+}
+
+void qmp_block_job_complete(const char *device, Error **errp)
+{
+    BlockJob *job = find_block_job(device);
+
+    if (!job) {
+        error_set(errp, QERR_BLOCK_JOB_NOT_ACTIVE, device);
+        return;
+    }
+
+    trace_qmp_block_job_complete(job);
+    block_job_complete(job, errp);
 }
 
 static void do_qmp_query_block_jobs_one(void *opaque, BlockDriverState *bs)
@@ -1165,19 +1362,8 @@ static void do_qmp_query_block_jobs_one(void *opaque, BlockDriverState *bs)
     BlockJob *job = bs->job;
 
     if (job) {
-        BlockJobInfoList *elem;
-        BlockJobInfo *info = g_new(BlockJobInfo, 1);
-        *info = (BlockJobInfo){
-            .type   = g_strdup(job->job_type->job_type),
-            .device = g_strdup(bdrv_get_device_name(bs)),
-            .len    = job->len,
-            .offset = job->offset,
-            .speed  = job->speed,
-        };
-
-        elem = g_new0(BlockJobInfoList, 1);
-        elem->value = info;
-
+        BlockJobInfoList *elem = g_new0(BlockJobInfoList, 1);
+        elem->value = block_job_query(bs->job);
         (*prev)->next = elem;
         *prev = elem;
     }

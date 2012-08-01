@@ -435,7 +435,7 @@
 #
 # Since: 1.0
 ##
-{ 'enum': 'BlockDeviceIoStatus', 'data': [ 'ok', 'failed', 'nospace' ] }
+{ 'enum': 'BlockDeviceIoStatus', 'data': [ 'ok', 'nospace', 'failed' ] }
 
 ##
 # @BlockInfo:
@@ -443,7 +443,8 @@
 # Block device information.  This structure describes a virtual device and
 # the backing device associated with it.
 #
-# @device: The device name associated with the virtual device.
+# @device: #optional The device name associated with the virtual device.
+#          Always included in the output of query-block.
 #
 # @type: This field is returned only for compatibility reasons, it should
 #        not be used (always returns 'unknown')
@@ -465,7 +466,7 @@
 # Since:  0.14.0
 ##
 { 'type': 'BlockInfo',
-  'data': {'device': 'str', 'type': 'str', 'removable': 'bool',
+  'data': {'*device': 'str', 'type': 'str', 'removable': 'bool',
            'locked': 'bool', '*inserted': 'BlockDeviceInfo',
            '*tray_open': 'bool', '*io-status': 'BlockDeviceIoStatus'} }
 
@@ -902,6 +903,61 @@
 { 'command': 'query-pci', 'returns': ['PciInfo'] }
 
 ##
+# @BlockdevOnError:
+#
+# An enumeration of possible behaviors for errors on I/O operations.
+# The exact meaning depends on whether the I/O was initiated by a guest
+# or by a block job
+#
+# @report: for guest operations, report the error to the guest;
+#          for jobs, cancel the job
+#
+# @ignore: ignore the error, only report a QMP event (BLOCK_IO_ERROR
+#          or BLOCK_JOB_ERROR)
+#
+# @stop: for guest operations, stop the virtual machine;
+#        for jobs, pause the job
+#
+# @enospc: same as @stop on ENOSPC, same as @report otherwise.
+#
+# Since: 1.2
+##
+{ 'enum': 'BlockdevOnError',
+  'data': ['report', 'ignore', 'enospc', 'stop'] }
+
+##
+# @MirrorSyncMode:
+#
+# An enumeration of possible behaviors for the initial synchronization
+# phase of storage mirroring.
+#
+# @top: copies data in the topmost image to the destination
+#
+# @full: copies data from all images to the destination
+#
+# @none: only copy data written from now on
+#
+# Since: 1.2
+##
+{ 'enum': 'MirrorSyncMode',
+  'data': ['top', 'full', 'none'] }
+
+##
+# @BlockJobTargetInfo:
+#
+# Information about the target device for a long-running block device
+# operation.
+#
+# @info: information on the target device
+#
+# @stats: statistics about a target device
+#
+# Since: 1.2
+##
+{ 'type': 'BlockJobTargetInfo',
+  'data': {'info': 'BlockInfo', 'stats': 'BlockStats'} }
+
+##
 # @BlockJobInfo:
 #
 # Information about a long-running block device operation.
@@ -912,15 +968,24 @@
 #
 # @len: the maximum progress value
 #
+# @paused: whether the job is paused (since 1.2)
+#
 # @offset: the current progress value
 #
 # @speed: the rate limit, bytes per second
+#
+# @io-status: the status of the job (since 1.2)
+#
+# @target: the target device, if applicable to this particular type of
+#          job.
 #
 # Since: 1.1
 ##
 { 'type': 'BlockJobInfo',
   'data': {'type': 'str', 'device': 'str', 'len': 'int',
-           'offset': 'int', 'speed': 'int'} }
+           'offset': 'int', 'paused': 'bool', 'speed': 'int',
+           'io-status': 'BlockDeviceIoStatus',
+            '*target': 'BlockJobTargetInfo'} }
 
 ##
 # @query-block-jobs:
@@ -1200,7 +1265,7 @@
 # @format: #optional the format of the snapshot image, default is 'qcow2'.
 #
 # @mode: #optional whether and how QEMU should create a new image, default is
-# 'absolute-paths'.
+#        'absolute-paths'.
 ##
 { 'type': 'BlockdevSnapshot',
   'data': { 'device': 'str', 'snapshot-file': 'str', '*format': 'str',
@@ -1230,9 +1295,9 @@
 #
 # Returns: nothing on success
 #          If @device is not a valid block device, DeviceNotFound
+#          If the block device has no medium inserted, DeviceHasNoMedium
 #          If @device is busy, DeviceInUse will be returned
-#          If @snapshot-file can't be created, OpenFileFailed
-#          If @snapshot-file can't be opened, OpenFileFailed
+#          If @snapshot-file can't be created or opened, OpenFileFailed
 #          If @format is invalid, InvalidBlockFormat
 #
 # Note: The transaction aborts on the first failure.  Therefore, there will
@@ -1258,11 +1323,13 @@
 # @format: #optional the format of the snapshot image, default is 'qcow2'.
 #
 # @mode: #optional whether and how QEMU should create a new image, default is
-# 'absolute-paths'.
+#        'absolute-paths'.
 #
 # Returns: nothing on success
 #          If @device is not a valid block device, DeviceNotFound
-#          If @snapshot-file can't be opened, OpenFileFailed
+#          If the block device has no medium inserted, DeviceHasNoMedium
+#          If @device is busy, DeviceInUse will be returned
+#          If @snapshot-file can't be created or opened, OpenFileFailed
 #          If @format is invalid, InvalidBlockFormat
 #
 # Since 0.14.0
@@ -1298,6 +1365,59 @@
 { 'command': 'human-monitor-command',
   'data': {'command-line': 'str', '*cpu-index': 'int'},
   'returns': 'str' }
+
+##
+# @drive-mirror
+#
+# Start mirroring a block device's writes to a new destination.
+#
+# @device:  the name of the device whose writes should be mirrored.
+#
+# @target: the target of the new image. If the file exists, or if it
+#          is a device, the existing file/device will be used as the new
+#          destination.  If it does not exist, a new file will be created.
+#
+# @format: #optional the format of the new destination, default is to
+#          probe is @mode is 'existing', else the format of the source
+#
+# @mode: #optional whether and how QEMU should create a new image, default is
+#        'absolute-paths'.
+#
+# @speed:  #optional the maximum speed, in bytes per second
+#
+# @sync: what parts of the disk image should be copied to the destination
+#        (all the disk, only the sectors allocated in the topmost image, or
+#        only new I/O).
+#
+# @granularity: #optional granularity of the dirty bitmap, default is 64K.
+#               Must be a power of 2 between 512 and 64M.
+#
+# @buf-size: #optional maximum amount of data in flight from source to
+#            target.
+#
+# @on-source-error: #optional the action to take on an error on the source,
+#                   default 'report'.  'stop' and 'enospc' can only be used
+#                   if the block device supports io-status (see BlockInfo).
+#
+# @on-target-error: #optional the action to take on an error on the target,
+#                   default 'report' (no limitations, since this applies to
+#                   a different block device than @device).
+#
+# Returns: nothing on success
+#          If @device is not a valid block device, DeviceNotFound
+#          If @target can't be opened, OpenFileFailed
+#          If @format is invalid, InvalidBlockFormat
+#          If @granularity is not a power of 2, InvalidParameter
+#          If @on_source_error is not supported, InvalidParameter
+#
+# Since 1.2
+##
+{ 'command': 'drive-mirror',
+  'data': { 'device': 'str', 'target': 'str', '*format': 'str',
+            'sync': 'MirrorSyncMode', '*mode': 'NewImageMode',
+            '*speed': 'int', '*granularity': 'int',
+            '*buf-size': 'int', '*on-source-error': 'BlockdevOnError',
+            '*on-target-error': 'BlockdevOnError' } }
 
 ##
 # @migrate_cancel
@@ -1628,17 +1748,23 @@
 #
 # @speed:  #optional the maximum speed, in bytes per second
 #
+# @on-error: #optional the action to take on an error (default report).
+#            'stop' and 'enospc' can only be used if the block device
+#            supports io-status (see BlockInfo).  Since 1.2.
+#
 # Returns: Nothing on success
 #          If streaming is already active on this device, DeviceInUse
 #          If @device does not exist, DeviceNotFound
 #          If image streaming is not supported by this device, NotSupported
 #          If @base does not exist, BaseNotFound
 #          If @speed is invalid, InvalidParameter
+#          If @on_error is not supported, InvalidParameter
 #
 # Since: 1.1
 ##
-{ 'command': 'block-stream', 'data': { 'device': 'str', '*base': 'str',
-                                       '*speed': 'int' } }
+{ 'command': 'block-stream',
+  'data': { 'device': 'str', '*base': 'str', '*speed': 'int',
+            '*on-error': 'BlockdevOnError' } }
 
 ##
 # @block-job-set-speed:
@@ -1657,7 +1783,7 @@
 # Returns: Nothing on success
 #          If the job type does not support throttling, NotSupported
 #          If the speed value is invalid, InvalidParameter
-#          If streaming is not active on this device, DeviceNotActive
+#          If no background operation is active on this device, BlockJobNotActive
 #
 # Since: 1.1
 ##
@@ -1667,9 +1793,9 @@
 ##
 # @block-job-cancel:
 #
-# Stop an active block streaming operation.
+# Stop an active background block operation.
 #
-# This command returns immediately after marking the active block streaming
+# This command returns immediately after marking the active background block
 # operation for cancellation.  It is an error to call this command if no
 # operation is in progress.
 #
@@ -1677,21 +1803,90 @@
 # BLOCK_JOB_CANCELLED event.  Before that happens the job is still visible when
 # enumerated using query-block-jobs.
 #
-# The image file retains its backing file unless the streaming operation happens
-# to complete just as it is being cancelled.
+# For streaming, the image file retains its backing file unless the streaming
+# operation happens to complete just as it is being cancelled.  A new streaming
+# operation can be started at a later time to finish copying all data from the
+# backing file.
 #
-# A new block streaming operation can be started at a later time to finish
-# copying all data from the backing file.
+# @device: the device name
+#
+# @force: #optional whether to allow cancellation of a paused job (default false)
+#
+# Returns: Nothing on success
+#          If no background operation is active on this device, BlockJobNotActive
+#          If the job is paused and force is absent or false, BlockJobPaused
+#
+# Since: 1.1
+##
+{ 'command': 'block-job-cancel', 'data': { 'device': 'str', '*force': 'bool' } }
+
+##
+# @block-job-pause:
+#
+# Pause an active background block operation.
+#
+# This command returns immediately after marking the active background block
+# operation for pausing.  It is an error to call this command if no
+# operation is in progress.
+#
+# The operation will pause as soon as possible.  No event is emitted when
+# the operation is actually paused.  Cancelling a paused job automatically
+# resumes it.
 #
 # @device: the device name
 #
 # Returns: Nothing on success
-#          If streaming is not active on this device, DeviceNotActive
+#          If no background operation is active on this device, DeviceNotActive
+#
+# Since: 1.2
+##
+{ 'command': 'block-job-pause', 'data': { 'device': 'str' } }
+
+##
+# @block-job-resume:
+#
+# Resume an active background block operation.
+#
+# This command returns immediately after resuming a paused background block
+# operation for cancellation.  It is an error to call this command if no
+# operation is in progress.
+#
+# @device: the device name
+#
+# Returns: Nothing on success
+#          If no background operation is active on this device, DeviceNotActive
 #          If cancellation already in progress, DeviceInUse
 #
-# Since: 1.1
+# Since: 1.2
 ##
-{ 'command': 'block-job-cancel', 'data': { 'device': 'str' } }
+{ 'command': 'block-job-resume', 'data': { 'device': 'str' } }
+
+##
+# @block-job-complete:
+#
+# Manually trigger completion of an active background block operation.  This
+# is supported for drive mirroring, where it also switches the device to
+# write to the target path only.
+#
+# This command completes an active background block operation synchronously.
+# The ordering of this command's return with the BLOCK_JOB_COMPLETED event
+# is not defined.  Note that if an I/O error occurs during the processing of
+# this command: 1) the command itself will fail; 2) the error will be processed
+# according to the rerror/werror arguments that were specified when starting
+# the operation.
+#
+# A cancelled or paused job cannot be completed.
+#
+# @device: the device name
+#
+# Returns: Nothing on success
+#          If no background operation is active on this device, BlockJobNotActive
+#          If the operation cannot be completed manually (either in general, or
+#            not at the time the command is invoked), BlockJobNotReady
+#
+# Since: 1.2
+##
+{ 'command': 'block-job-complete', 'data': { 'device': 'str' } }
 
 ##
 # @ObjectTypeInfo:

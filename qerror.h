@@ -64,6 +64,15 @@ QError *qobject_to_qerror(const QObject *obj);
 #define QERR_BASE_NOT_FOUND \
     "{ 'class': 'BaseNotFound', 'data': { 'base': %s } }"
 
+#define QERR_BLOCK_JOB_NOT_ACTIVE \
+    "{ 'class': 'BlockJobNotActive', 'data': { 'name': %s } }"
+
+#define QERR_BLOCK_JOB_PAUSED \
+    "{ 'class': 'BlockJobPaused', 'data': { 'name': %s } }"
+
+#define QERR_BLOCK_JOB_NOT_READY \
+    "{ 'class': 'BlockJobNotReady', 'data': { 'name': %s } }"
+
 #define QERR_BLOCK_FORMAT_FEATURE_NOT_SUPPORTED \
     "{ 'class': 'BlockFormatFeatureNotSupported', 'data': { 'format': %s, 'name': %s, 'feature': %s } }"
 

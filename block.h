@@ -6,9 +6,11 @@
 #include "qemu-option.h"
 #include "qemu-coroutine.h"
 #include "qobject.h"
+#include "qapi-types.h"
 
 /* block.c */
 typedef struct BlockDriver BlockDriver;
+typedef struct BlockJob BlockJob;
 
 typedef struct BlockDriverInfo {
     /* in bytes, 0 if irrelevant */
@@ -87,21 +89,14 @@ typedef struct BlockDevOps {
 #define BDRV_SECTOR_MASK   ~(BDRV_SECTOR_SIZE - 1)
 
 typedef enum {
-    BLOCK_ERR_REPORT, BLOCK_ERR_IGNORE, BLOCK_ERR_STOP_ENOSPC,
-    BLOCK_ERR_STOP_ANY
-} BlockErrorAction;
-
-typedef enum {
     BDRV_ACTION_REPORT, BDRV_ACTION_IGNORE, BDRV_ACTION_STOP
-} BlockQMPEventAction;
+} BlockErrorAction;
 
 void bdrv_iostatus_enable(BlockDriverState *bs);
 void bdrv_iostatus_reset(BlockDriverState *bs);
 void bdrv_iostatus_disable(BlockDriverState *bs);
 bool bdrv_iostatus_is_enabled(const BlockDriverState *bs);
 void bdrv_iostatus_set_err(BlockDriverState *bs, int error);
-void bdrv_emit_qmp_error_event(const BlockDriverState *bdrv,
-                               BlockQMPEventAction action, int is_read);
 void bdrv_info_print(Monitor *mon, const QObject *data);
 void bdrv_info(Monitor *mon, QObject **ret_data);
 void bdrv_stats_print(Monitor *mon, const QObject *data);
@@ -127,6 +122,7 @@ void bdrv_append(BlockDriverState *bs_new, BlockDriverState *bs_top);
 void bdrv_delete(BlockDriverState *bs);
 int bdrv_parse_cache_flags(const char *mode, int *flags);
 int bdrv_file_open(BlockDriverState **pbs, const char *filename, int flags);
+int bdrv_ensure_backing_file(BlockDriverState *bs);
 int bdrv_open(BlockDriverState *bs, const char *filename, int flags,
               BlockDriver *drv);
 void bdrv_close(BlockDriverState *bs);
@@ -257,9 +253,12 @@ int bdrv_has_zero_init(BlockDriverState *bs);
 int bdrv_is_allocated(BlockDriverState *bs, int64_t sector_num, int nb_sectors,
                       int *pnum);
 
-void bdrv_set_on_error(BlockDriverState *bs, BlockErrorAction on_read_error,
-                       BlockErrorAction on_write_error);
-BlockErrorAction bdrv_get_on_error(BlockDriverState *bs, int is_read);
+void bdrv_set_on_error(BlockDriverState *bs, BlockdevOnError on_read_error,
+                       BlockdevOnError on_write_error);
+BlockdevOnError bdrv_get_on_error(BlockDriverState *bs, int is_read);
+BlockErrorAction bdrv_get_error_action(BlockDriverState *bs, int is_read, int error);
+void bdrv_error_action(BlockDriverState *bs, BlockErrorAction action,
+                       int is_read, int error);
 int bdrv_is_read_only(BlockDriverState *bs);
 int bdrv_is_sg(BlockDriverState *bs);
 int bdrv_enable_write_cache(BlockDriverState *bs);
@@ -284,12 +283,18 @@ int bdrv_get_flags(BlockDriverState *bs);
 int bdrv_write_compressed(BlockDriverState *bs, int64_t sector_num,
                           const uint8_t *buf, int nb_sectors);
 int bdrv_get_info(BlockDriverState *bs, BlockDriverInfo *bdi);
+void bdrv_round_to_clusters(BlockDriverState *bs,
+                            int64_t sector_num, int nb_sectors,
+                            int64_t *cluster_sector_num,
+                            int *cluster_nb_sectors);
 
 const char *bdrv_get_encrypted_filename(BlockDriverState *bs);
 void bdrv_get_backing_filename(BlockDriverState *bs,
                                char *filename, int filename_size);
 void bdrv_get_full_backing_filename(BlockDriverState *bs,
                                     char *dest, size_t sz);
+BlockInfo *bdrv_query_info(BlockDriverState *s);
+BlockStats *bdrv_query_stats(const BlockDriverState *bs);
 int bdrv_can_snapshot(BlockDriverState *bs);
 int bdrv_is_snapshot(BlockDriverState *bs);
 BlockDriverState *bdrv_snapshots(void);
@@ -323,12 +328,12 @@ int bdrv_img_create(const char *filename, const char *fmt,
 void bdrv_set_buffer_alignment(BlockDriverState *bs, int align);
 void *qemu_blockalign(BlockDriverState *bs, size_t size);
 
-#define BDRV_SECTORS_PER_DIRTY_CHUNK 2048
-
-void bdrv_set_dirty_tracking(BlockDriverState *bs, int enable);
+struct HBitmapIter;
+void bdrv_set_dirty_tracking(BlockDriverState *bs, int granularity);
 int bdrv_get_dirty(BlockDriverState *bs, int64_t sector);
-void bdrv_reset_dirty(BlockDriverState *bs, int64_t cur_sector,
-                      int nr_sectors);
+void bdrv_set_dirty(BlockDriverState *bs, int64_t cur_sector, int nr_sectors);
+void bdrv_reset_dirty(BlockDriverState *bs, int64_t cur_sector, int nr_sectors);
+void bdrv_dirty_iter_init(BlockDriverState *bs, struct HBitmapIter *hbi);
 int64_t bdrv_get_dirty_count(BlockDriverState *bs);
 
 void bdrv_enable_copy_on_read(BlockDriverState *bs);
