@@ -302,9 +302,11 @@ static int raw_reopen_prepare(BlockDriverState *bs, BDRVReopenState **prs,
     /* stash state before reopen */
     raw_rs->stash_s = g_malloc0(sizeof(BDRVRawState));
     raw_stash_state(raw_rs->stash_s, s);
-    s->fd = dup3(raw_rs->stash_s->fd, s->fd, O_CLOEXEC);
 
     *prs = &(raw_rs->reopen_state);
+
+    /* dup the original fd */
+    raw_rs->stash_s->fd = fcntl(s->fd, F_DUPFD_CLOEXEC);
 
     /* Flags that can be set using fcntl */
     int fcntl_flags = BDRV_O_NOCACHE;
@@ -317,11 +319,15 @@ static int raw_reopen_prepare(BlockDriverState *bs, BDRVReopenState **prs,
         }
         ret = fcntl_setfl(s->fd, s->open_flags);
     } else {
-
         /* close and reopen using new flags */
         bs->drv->bdrv_close(bs);
         ret = bs->drv->bdrv_file_open(bs, bs->filename, flags);
+        if (ret < 0) {
+            fprintf(stderr, "%s:%d failed with %s\n",__FUNCTION__,__LINE__,strerror(errno));
+        }
+
     }
+    printf("%s returning with %d\n",__FUNCTION__,ret);
     return ret;
 }
 
@@ -333,6 +339,7 @@ static void raw_reopen_commit(BlockDriverState *bs, BDRVReopenState *rs)
 
     /* clean up stashed state */
     close(raw_rs->stash_s->fd);
+
     g_free(raw_rs->stash_s);
     g_free(raw_rs);
 }
@@ -355,7 +362,7 @@ static void raw_reopen_abort(BlockDriverState *bs, BDRVReopenState *rs)
 
 static void raw_stash_state(BDRVRawState *stashed_s, BDRVRawState *s)
 {
-    stashed_s->fd = -1;
+    stashed_s->fd = -1; /* this will be set by F_DUPFD */
     stashed_s->type = s->type;
     stashed_s->open_flags = s->open_flags;
 #if defined(__linux__)

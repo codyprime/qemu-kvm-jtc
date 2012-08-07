@@ -919,6 +919,7 @@ void bdrv_reopen(BlockDriverState *bs, int bdrv_flags, Error **errp)
     if (drv->bdrv_reopen_prepare) {
         ret = bdrv_reopen_prepare(bs, &reopen_state, bdrv_flags);
          if (ret < 0) {
+            printf("bdrv_reopen_prepare returned %d, abort\n",ret);
             bdrv_reopen_abort(bs, reopen_state);
             error_set(errp, QERR_OPEN_FILE_FAILED, bs->filename);
             return;
@@ -926,6 +927,7 @@ void bdrv_reopen(BlockDriverState *bs, int bdrv_flags, Error **errp)
 
         bdrv_reopen_commit(bs, reopen_state);
         bs->open_flags = bdrv_flags;
+        bs->read_only = !(bdrv_flags & BDRV_O_RDWR);
     } else {
         error_set(errp, QERR_BLOCK_FORMAT_FEATURE_NOT_SUPPORTED,
                   drv->format_name, bs->device_name,

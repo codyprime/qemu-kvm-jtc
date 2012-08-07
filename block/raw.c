@@ -12,17 +12,15 @@ static int raw_open(BlockDriverState *bs, int flags)
 static int raw_reopen_prepare(BlockDriverState *bs, BDRVReopenState **prs,
                               int flags)
 {
-    return bdrv_reopen_prepare(bs->file, prs, flags);
+    return 0;
 }
 
 static void raw_reopen_commit(BlockDriverState *bs, BDRVReopenState *rs)
 {
-    bdrv_reopen_commit(bs->file, rs);
 }
 
 static void raw_reopen_abort(BlockDriverState *bs, BDRVReopenState *rs)
 {
-    bdrv_reopen_abort(bs->file, rs);
 }
 
 static int coroutine_fn raw_co_readv(BlockDriverState *bs, int64_t sector_num,
