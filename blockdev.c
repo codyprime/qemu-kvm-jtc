@@ -884,6 +884,10 @@ void qmp_block_commit(const char *device,
     if (!(orig_base_flags & BDRV_O_RDWR)) {
         bdrv_reopen(base_bs, orig_base_flags | BDRV_O_RDWR, &local_err);
     }
+    if (local_err != NULL) {
+        error_propagate(errp, local_err);
+        return;
+    }
 
     /* need to also make top r/w, so that when the commit is
      * finished we can change the backing file */
@@ -891,6 +895,10 @@ void qmp_block_commit(const char *device,
     /* convert top_bs to r/w, if necessary */
     if (!(orig_top_flags & BDRV_O_RDWR)) {
         bdrv_reopen(top_bs, orig_top_flags | BDRV_O_RDWR, &local_err);
+    }
+    if (local_err != NULL) {
+        error_propagate(errp, local_err);
+        return;
     }
 
     commit_start(bs, base_bs, top_bs, speed, on_error,

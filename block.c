@@ -1666,13 +1666,6 @@ int bdrv_delete_intermediate(BlockDriverState *active, BlockDriverState *top,
         goto exit;
     }
 
-    /* special case of top->backing_hd already pointing to base - nothing
-     * to do, no intermediate images
-     */
-    if (top->backing_hd == base) {
-        ret = 0;
-        goto exit;
-    }
 
     /* if the active bs layer is the same as the new top, then there
      * is no image above the top, so it is also the new_top (and we must
@@ -1689,6 +1682,14 @@ int bdrv_delete_intermediate(BlockDriverState *active, BlockDriverState *top,
             }
             intermediate = intermediate->backing_hd;
         }
+    }
+
+    /* special case of new_top_bs->backing_hd already pointing to base - nothing
+     * to do, no intermediate images
+     */
+    if (new_top_bs->backing_hd == base) {
+        ret = 0;
+        goto exit;
     }
 
     if (new_top_bs == NULL) {
