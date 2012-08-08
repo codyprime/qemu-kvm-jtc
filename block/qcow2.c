@@ -481,8 +481,6 @@ static void qcow2_reopen_commit(BlockDriverState *bs, BDRVReopenState *rs)
 
     g_free(stashed_s->cluster_cache);
     qemu_vfree(stashed_s->cluster_data);
-    qcow2_refcount_close(bs);
-    qcow2_free_snapshots(bs);
 
     g_free(stashed_s);
     g_free(qcow2_rs);

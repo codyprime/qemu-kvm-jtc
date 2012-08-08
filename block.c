@@ -907,12 +907,22 @@ void bdrv_reopen(BlockDriverState *bs, int bdrv_flags, Error **errp)
     int ret = 0;
     BDRVReopenState *reopen_state = NULL;
 
+    assert(drv != NULL);
+
     /* Quiesce IO for the given block device */
     bdrv_drain_all();
     ret = bdrv_flush(bs);
     if (ret != 0) {
         error_set(errp, QERR_IO_ERROR);
         return;
+    }
+
+    /* open any file images */
+    if (bs->file) {
+        bdrv_reopen(bs->file, bdrv_flags, errp);
+        if (errp && *errp) {
+            goto exit;
+        }
     }
 
     /* Use driver specific reopen() if available */
@@ -934,6 +944,8 @@ void bdrv_reopen(BlockDriverState *bs, int bdrv_flags, Error **errp)
                   "reopening of file");
         return;
     }
+exit:
+    return;
 }
 
 void bdrv_close(BlockDriverState *bs)
