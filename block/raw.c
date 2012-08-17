@@ -9,20 +9,6 @@ static int raw_open(BlockDriverState *bs, int flags)
     return 0;
 }
 
-static int raw_reopen_prepare(BlockDriverState *bs, BDRVReopenState **prs,
-                              int flags)
-{
-    return 0;
-}
-
-static void raw_reopen_commit(BlockDriverState *bs, BDRVReopenState *rs)
-{
-}
-
-static void raw_reopen_abort(BlockDriverState *bs, BDRVReopenState *rs)
-{
-}
-
 static int coroutine_fn raw_co_readv(BlockDriverState *bs, int64_t sector_num,
                                      int nb_sectors, QEMUIOVector *qiov)
 {
@@ -127,10 +113,6 @@ static BlockDriver bdrv_raw = {
     .instance_size      = 1,
 
     .bdrv_open          = raw_open,
-    .bdrv_reopen_prepare
-                        = raw_reopen_prepare,
-    .bdrv_reopen_commit = raw_reopen_commit,
-    .bdrv_reopen_abort  = raw_reopen_abort,
     .bdrv_close         = raw_close,
 
     .bdrv_co_readv          = raw_co_readv,

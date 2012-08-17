@@ -115,14 +115,6 @@ typedef struct VmdkGrainMarker {
     uint8_t  data[0];
 } VmdkGrainMarker;
 
-typedef struct BDRVVmdkReopenState {
-    BDRVReopenState reopen_state;
-    BDRVVmdkState *stash_s;
-} BDRVVmdkReopenState;
-
-static void vmdk_stash_state(BDRVVmdkState *stashed_state, BDRVVmdkState *s);
-static void vmdk_revert_state(BDRVVmdkState *s, BDRVVmdkState *stashed_state);
-
 static int vmdk_probe(const uint8_t *buf, int buf_size, const char *filename)
 {
     uint32_t magic;
@@ -680,94 +672,6 @@ static int vmdk_open(BlockDriverState *bs, int flags)
 fail:
     vmdk_free_extents(bs);
     return ret;
-}
-
-static int vmdk_reopen_prepare(BlockDriverState *bs, BDRVReopenState **prs,
-                               int flags)
-{
-    BDRVVmdkReopenState *vmdk_rs = g_malloc0(sizeof(BDRVVmdkReopenState));
-    int ret = 0;
-    BDRVVmdkState *s = bs->opaque;
-
-    vmdk_rs->reopen_state.bs = bs;
-
-    /* save state before reopen */
-    vmdk_rs->stash_s = g_malloc0(sizeof(BDRVVmdkState));
-    vmdk_stash_state(vmdk_rs->stash_s, s);
-    s->num_extents = 0;
-    s->extents = NULL;
-    s->migration_blocker = NULL;
-    *prs = &(vmdk_rs->reopen_state);
-
-    /* create extents afresh with new flags */
-     ret = vmdk_open(bs, flags);
-     return ret;
-}
-
-static void vmdk_reopen_commit(BlockDriverState *bs, BDRVReopenState *rs)
-{
-    BDRVVmdkReopenState *vmdk_rs;
-    BDRVVmdkState *stashed_s;
-    VmdkExtent *e;
-    int i;
-
-    vmdk_rs = container_of(rs, BDRVVmdkReopenState, reopen_state);
-    stashed_s = vmdk_rs->stash_s;
-
-    /* clean up stashed state */
-    for (i = 0; i < stashed_s->num_extents; i++) {
-        e = &stashed_s->extents[i];
-        g_free(e->l1_table);
-        g_free(e->l2_cache);
-        g_free(e->l1_backup_table);
-    }
-    g_free(stashed_s->extents);
-    g_free(vmdk_rs->stash_s);
-    g_free(vmdk_rs);
-}
-
-static void vmdk_reopen_abort(BlockDriverState *bs, BDRVReopenState *rs)
-{
-    BDRVVmdkReopenState *vmdk_rs;
-    BDRVVmdkState *s = bs->opaque;
-    VmdkExtent *e;
-    int i;
-
-    vmdk_rs = container_of(rs, BDRVVmdkReopenState, reopen_state);
-
-    /* revert to stashed state */
-    for (i = 0; i < s->num_extents; i++) {
-        e = &s->extents[i];
-        g_free(e->l1_table);
-        g_free(e->l2_cache);
-        g_free(e->l1_backup_table);
-    }
-    g_free(s->extents);
-    vmdk_revert_state(s, vmdk_rs->stash_s);
-    g_free(vmdk_rs->stash_s);
-    g_free(vmdk_rs);
-}
-
-static void vmdk_stash_state(BDRVVmdkState *stashed_state, BDRVVmdkState *s)
-{
-   stashed_state->lock = s->lock;
-   stashed_state->desc_offset = s->desc_offset;
-   stashed_state->cid_updated = s->cid_updated;
-   stashed_state->parent_cid = s->parent_cid;
-   stashed_state->num_extents = s->num_extents;
-   stashed_state->extents = s->extents;
-   stashed_state->migration_blocker = s->migration_blocker;
-}
-
-static void vmdk_revert_state(BDRVVmdkState *s, BDRVVmdkState *stashed_state)
-{
-   s->lock = stashed_state->lock;
-   s->desc_offset = stashed_state->desc_offset;
-   s->cid_updated = stashed_state->cid_updated;
-   s->parent_cid = stashed_state->parent_cid;
-   s->num_extents = stashed_state->num_extents;
-   s->extents = stashed_state->extents;
-   s->migration_blocker = stashed_state->migration_blocker;
 }
 
 static int get_whole_cluster(BlockDriverState *bs,
@@ -1688,12 +1592,6 @@ static BlockDriver bdrv_vmdk = {
     .instance_size  = sizeof(BDRVVmdkState),
     .bdrv_probe     = vmdk_probe,
     .bdrv_open      = vmdk_open,
-    .bdrv_reopen_prepare
-                    = vmdk_reopen_prepare,
-    .bdrv_reopen_commit
-                    = vmdk_reopen_commit,
-    .bdrv_reopen_abort
-                    = vmdk_reopen_abort,
     .bdrv_read      = vmdk_co_read,
     .bdrv_write     = vmdk_co_write,
     .bdrv_close     = vmdk_close,

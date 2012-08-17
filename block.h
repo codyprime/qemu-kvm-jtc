@@ -92,6 +92,15 @@ typedef enum {
     BDRV_ACTION_REPORT, BDRV_ACTION_IGNORE, BDRV_ACTION_STOP
 } BlockErrorAction;
 
+typedef struct BlockReopenQueueEntry {
+     BlockDriverState *bs;
+     int flags;
+     bool prepared;
+     QSIMPLEQ_ENTRY(BlockReopenQueueEntry) entry;
+} BlockReopenQueueEntry;
+
+typedef QSIMPLEQ_HEAD(BlockReopenQueue, BlockReopenQueueEntry) BlockReopenQueue;
+
 void bdrv_iostatus_enable(BlockDriverState *bs);
 void bdrv_iostatus_reset(BlockDriverState *bs);
 void bdrv_iostatus_disable(BlockDriverState *bs);
@@ -125,10 +134,13 @@ int bdrv_file_open(BlockDriverState **pbs, const char *filename, int flags);
 int bdrv_ensure_backing_file(BlockDriverState *bs);
 int bdrv_open(BlockDriverState *bs, const char *filename, int flags,
               BlockDriver *drv);
-void bdrv_reopen(BlockDriverState *bs, int bdrv_flags, Error **errp);
-int bdrv_reopen_prepare(BlockDriverState *bs, BDRVReopenState **prs, int flags);
-void bdrv_reopen_commit(BlockDriverState *bs, BDRVReopenState *rs);
-void bdrv_reopen_abort(BlockDriverState *bs, BDRVReopenState *rs);
+BlockReopenQueue *bdrv_reopen_queue(BlockReopenQueue *bs_queue,
+                                    BlockDriverState *bs, int flags);
+int bdrv_reopen_multiple(BlockReopenQueue *bs_queue, Error **errp);
+int bdrv_reopen(BlockDriverState *bs, int bdrv_flags, Error **errp);
+int bdrv_reopen_prepare(BlockDriverState *bs, int flags, Error **errp);
+void bdrv_reopen_commit(BlockDriverState *bs);
+void bdrv_reopen_abort(BlockDriverState *bs);
 void bdrv_close(BlockDriverState *bs);
 int bdrv_attach_dev(BlockDriverState *bs, void *dev);
 void bdrv_attach_dev_nofail(BlockDriverState *bs, void *dev);
@@ -203,6 +215,7 @@ typedef enum {
     BDRV_FIX_LEAKS    = 1,
     BDRV_FIX_ERRORS   = 2,
 } BdrvCheckMode;
+
 
 int bdrv_check(BlockDriverState *bs, BdrvCheckResult *res, BdrvCheckMode fix);
 

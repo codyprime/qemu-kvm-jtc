@@ -73,11 +73,9 @@ struct BlockDriver {
     int (*bdrv_probe_device)(const char *filename);
 
     /* For handling image reopen for split or non-split files */
-    int (*bdrv_reopen_prepare)(BlockDriverState *bs,
-                               BDRVReopenState **prs,
-                               int flags);
-    void (*bdrv_reopen_commit)(BlockDriverState *bs, BDRVReopenState *rs);
-    void (*bdrv_reopen_abort)(BlockDriverState *bs, BDRVReopenState *rs);
+    int (*bdrv_reopen_prepare)(BlockDriverState *bs, int flags, Error **errp);
+    void (*bdrv_reopen_commit)(BlockDriverState *bs);
+    void (*bdrv_reopen_abort)(BlockDriverState *bs);
 
     int (*bdrv_open)(BlockDriverState *bs, int flags);
     int (*bdrv_file_open)(BlockDriverState *bs, const char *filename, int flags);
@@ -275,6 +273,8 @@ struct BlockDriverState {
 
     /* long-running background operation */
     BlockJob *job;
+    BlockDriverState *reopen_copy;
+
 };
 
 struct BDRVReopenState {

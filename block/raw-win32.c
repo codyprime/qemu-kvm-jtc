@@ -118,7 +118,7 @@ static int raw_open(BlockDriverState *bs, const char *filename, int flags)
     s->overlapped = overlapped;
     return 0;
 }
-
+#if 0
 static int raw_reopen_prepare(BlockDriverState *bs, BDRVReopenState **prs,
                               int flags)
 {
@@ -204,7 +204,7 @@ static void raw_reopen_abort(BlockDriverState *bs, BDRVReopenState *rs)
     s->overlapped = raw_rs->stash_overlapped;
     g_free(raw_rs);
 }
-
+#endif
 static int raw_read(BlockDriverState *bs, int64_t sector_num,
                     uint8_t *buf, int nb_sectors)
 {
