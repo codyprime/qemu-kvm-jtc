@@ -140,9 +140,17 @@ typedef struct BDRVRawState {
 #endif
 } BDRVRawState;
 
+typedef struct BDRVRawReopenState {
+    BDRVReopenState reopen_state;
+    int fd;
+    int open_flags;
+    uint8_t *aligned_buf;
+    unsigned aligned_buf_size;
+    BDRVRawState *stash_s;
+} BDRVRawReopenState;
+
 static int fd_open(BlockDriverState *bs);
 static int64_t raw_getlength(BlockDriverState *bs);
-static void raw_duplicate_state(BDRVRawState *stashed_state, BDRVRawState *s);
 
 #if defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
 static int cdrom_reopen(BlockDriverState *bs);
@@ -287,97 +295,95 @@ static int raw_open(BlockDriverState *bs, const char *filename, int flags)
 /* Flags that can be set using fcntl */
 #define FCNTL_FLAGS (BDRV_O_NOCACHE)
 
-static int raw_reopen_prepare(BlockDriverState *bs, int flags, Error **errp)
+static int raw_reopen_prepare(BDRVReopenState *state, Error **errp)
 {
-    BDRVRawState *s = bs->opaque;
-    BDRVRawState *new_s;
-    BlockDriverState *bs_new = bs->reopen_copy;
+    BDRVRawState *s = state->bs->opaque;
+    BDRVRawReopenState *raw_s;
     int ret = 0;
 
-    assert(bs_new != NULL);
+    state->opaque = g_malloc0(sizeof(BDRVRawReopenState));
+    raw_s = state->opaque;
 
-    /* we will have a new BDRVRawState.  The previous value of opaque is not
-     * leaked, because it is still associated with the original bs */  
-    bs_new->opaque = g_malloc0(bs_new->drv->instance_size);
-    new_s = bs_new->opaque;
-    
-    /* copy current state into new working state */
-    raw_duplicate_state(new_s, s);
+    raw_s->open_flags = state->flags;
 
     /* 
      * If we didn't have BDRV_O_NOCACHE set before, we may not have allocated
-     * aligned_buf - also, if we are operating on a new structure, we want to
-     * avoid accidentally freeing a working copy in the case of an abort
+     * aligned_buf
      */
-    new_s->aligned_buf = NULL;
-    if ((flags & BDRV_O_NOCACHE)) {
+    if ((state->flags & BDRV_O_NOCACHE)) {
         /*
          * Allocate a buffer for read/modify/write cycles.  Choose the size
          * pessimistically as we don't know the block size yet.
          */
-        new_s->aligned_buf_size = 32 * MAX_BLOCKSIZE;
-        new_s->aligned_buf = qemu_memalign(MAX_BLOCKSIZE,
-                                           new_s->aligned_buf_size);
+        raw_s->aligned_buf_size = 32 * MAX_BLOCKSIZE;
+        raw_s->aligned_buf = qemu_memalign(MAX_BLOCKSIZE,
+                                           raw_s->aligned_buf_size);
 
-        if (new_s->aligned_buf == NULL) {
+        if (raw_s->aligned_buf == NULL) {
             ret = -1;
             goto error;
         }
     }
 
-    /* dup the original fd */
-    new_s->fd = fcntl(s->fd, F_DUPFD_CLOEXEC, s->fd+1); /* TODO: qemu fcntl wrapper */
-    if (new_s->fd == -1) {
-        fprintf(stderr, "%s:%d failed with %s\n",__FUNCTION__,__LINE__,strerror(errno));
-        ret = -1;
-        goto error;
-    }
-
-    if ((bs_new->open_flags & ~FCNTL_FLAGS) == (flags & ~FCNTL_FLAGS)) {
-        if ((flags & BDRV_O_NOCACHE)) {
-            new_s->open_flags |= O_DIRECT;
-        } else {
-            new_s->open_flags &= ~O_DIRECT;
-        }
-        ret = fcntl_setfl(new_s->fd, new_s->open_flags);
-    } else {
-        /* close and reopen using new flags */
-        bs_new->drv->bdrv_close(bs_new);    /* note, this is closing
-                                               the dup'ed copy */
-        ret = bs_new->drv->bdrv_file_open(bs_new, bs_new->filename, flags);
-        if (ret == 0) {
-        } else {
+    if ((raw_s->open_flags & ~FCNTL_FLAGS) == (s->open_flags & ~FCNTL_FLAGS)) {
+        /* dup the original fd */
+        raw_s->fd = fcntl(s->fd, F_DUPFD_CLOEXEC, s->fd+1); /* TODO: qemu fcntl wrapper */
+        if (raw_s->fd == -1) {
             fprintf(stderr, "%s:%d failed with %s\n",__FUNCTION__,__LINE__,strerror(errno));
+            ret = -1;
+            goto error;
         }
-
+        if ((state->flags & BDRV_O_NOCACHE)) {
+            raw_s->open_flags |= O_DIRECT;
+        } else {
+            raw_s->open_flags &= ~O_DIRECT;
+        }
+        ret = fcntl_setfl(raw_s->fd, raw_s->open_flags);
+    } else {
+        raw_s->fd = qemu_open(state->bs->filename, raw_s->open_flags, 0644);
+        if (raw_s->fd == -1) {
+            ret = -1;
+        }
     }
 error:
     printf("%s returning with %d\n",__FUNCTION__,ret);
     return ret;
 }
 
-static void raw_duplicate_state(BDRVRawState *stashed_s, BDRVRawState *s)
-{
-    stashed_s->fd = -1; /* this will be set by F_DUPFD */
-    stashed_s->type = s->type;
-    stashed_s->open_flags = s->open_flags;
-#if defined(__linux__)
-    /* linux floppy specific */
-    stashed_s->fd_open_time = s->fd_open_time;
-    stashed_s->fd_error_time = s->fd_error_time;
-    stashed_s->fd_got_error = s->fd_got_error;
-    stashed_s->fd_media_changed = s->fd_media_changed;
-#endif
-#ifdef CONFIG_LINUX_AIO
-    stashed_s->use_aio = s->use_aio;
-    stashed_s->aio_ctx = s->aio_ctx;
-#endif
-    stashed_s->aligned_buf = s->aligned_buf;
-    stashed_s->aligned_buf_size = s->aligned_buf_size;
-#ifdef CONFIG_XFS
-    stashed_s->is_xfs = s->is_xfs;
-#endif
 
+static void raw_reopen_commit(BDRVReopenState *state)
+{
+    BDRVRawReopenState *raw_s = state->opaque;
+    BDRVRawState *s = state->bs->opaque;
+
+    if (raw_s->aligned_buf != NULL) {
+        qemu_vfree(s->aligned_buf);
+    }
+    s->aligned_buf      = raw_s->aligned_buf;
+    s->aligned_buf_size = raw_s->aligned_buf_size;
+    s->open_flags       = raw_s->open_flags;
+
+    close(s->fd);
+    s->fd = raw_s->fd;
+
+    g_free(state->opaque);
+    state->opaque = NULL;
+}
+
+
+static void raw_reopen_abort(BDRVReopenState *state)
+{
+    BDRVRawReopenState *raw_s = state->opaque;
+
+    if (raw_s->fd >= 0) {
+        close(raw_s->fd);
+        raw_s->fd = -1;
+        if (raw_s->aligned_buf != NULL) {
+            qemu_vfree(raw_s->aligned_buf);
+        }
+    }
+    g_free(state->opaque);
+    state->opaque = NULL;
 }
 
 
@@ -834,6 +840,8 @@ static BlockDriver bdrv_file = {
     .bdrv_probe = NULL, /* no probe for protocols */
     .bdrv_file_open = raw_open,
     .bdrv_reopen_prepare = raw_reopen_prepare,
+    .bdrv_reopen_commit = raw_reopen_commit,
+    .bdrv_reopen_abort = raw_reopen_abort,
     .bdrv_close = raw_close,
     .bdrv_create = raw_create,
     .bdrv_co_discard = raw_co_discard,

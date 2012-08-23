@@ -477,6 +477,25 @@ static int qcow2_set_key(BlockDriverState *bs, const char *key)
     return 0;
 }
 
+/* We have nothing to do for QCOW2 reopen, stubs just return
+ * success */
+static int qcow2_reopen_prepare(BDRVReopenState *state, Error **errp)
+{
+    return 0;
+}
+
+static void qcow2_reopen_commit(BDRVReopenState *state)
+{
+    return;
+}
+
+static void qcow2_reopen_abort(BDRVReopenState *state)
+{
+    return;
+}
+    
+
+
 static int coroutine_fn qcow2_co_is_allocated(BlockDriverState *bs,
         int64_t sector_num, int nb_sectors, int *pnum)
 {
@@ -1569,6 +1588,9 @@ static BlockDriver bdrv_qcow2 = {
     .bdrv_probe         = qcow2_probe,
     .bdrv_open          = qcow2_open,
     .bdrv_close         = qcow2_close,
+    .bdrv_reopen_prepare  = qcow2_reopen_prepare,
+    .bdrv_reopen_commit   = qcow2_reopen_commit,
+    .bdrv_reopen_abort    = qcow2_reopen_abort,
     .bdrv_create        = qcow2_create,
     .bdrv_co_is_allocated = qcow2_co_is_allocated,
     .bdrv_set_key       = qcow2_set_key,

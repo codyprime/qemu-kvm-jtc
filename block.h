@@ -93,9 +93,8 @@ typedef enum {
 } BlockErrorAction;
 
 typedef struct BlockReopenQueueEntry {
-     BlockDriverState *bs;
-     int flags;
      bool prepared;
+     BDRVReopenState *state;
      QSIMPLEQ_ENTRY(BlockReopenQueueEntry) entry;
 } BlockReopenQueueEntry;
 
@@ -138,9 +137,9 @@ BlockReopenQueue *bdrv_reopen_queue(BlockReopenQueue *bs_queue,
                                     BlockDriverState *bs, int flags);
 int bdrv_reopen_multiple(BlockReopenQueue *bs_queue, Error **errp);
 int bdrv_reopen(BlockDriverState *bs, int bdrv_flags, Error **errp);
-int bdrv_reopen_prepare(BlockDriverState *bs, int flags, Error **errp);
-void bdrv_reopen_commit(BlockDriverState *bs);
-void bdrv_reopen_abort(BlockDriverState *bs);
+int bdrv_reopen_prepare(BDRVReopenState *reopen_state, Error **errp);
+void bdrv_reopen_commit(BDRVReopenState *reopen_state);
+void bdrv_reopen_abort(BDRVReopenState *reopen_state);
 void bdrv_close(BlockDriverState *bs);
 int bdrv_attach_dev(BlockDriverState *bs, void *dev);
 void bdrv_attach_dev_nofail(BlockDriverState *bs, void *dev);

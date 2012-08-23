@@ -886,7 +886,9 @@ unlink_and_fail:
  *
  * bs_queue can either be an existing BlockReopenQueue that has had QSIMPLE_INIT
  * already performed, or alternatively may be NULL a new BlockReopenQueue will
- * be created and initialized.
+ * be created and initialized. This newly created BlockReopenQueue should be
+ * passed back in for subsequent calls that are intended to be of the same
+ * atomic 'set'.
  *
  * bs is the BlockDriverState to add to the reopen queue.
  *
@@ -907,10 +909,16 @@ BlockReopenQueue *bdrv_reopen_queue(BlockReopenQueue *bs_queue,
         QSIMPLEQ_INIT(bs_queue);
     }
 
+    if (bs->file) {
+        bdrv_reopen_queue(bs_queue, bs->file, flags);
+    }
+
     bs_entry = g_new0(BlockReopenQueueEntry, 1);
     QSIMPLEQ_INSERT_TAIL(bs_queue, bs_entry, entry);
-    bs_entry->bs = bs;
-    bs_entry->flags = flags;
+
+    bs_entry->state = g_new0(BDRVReopenState, 1);
+    bs_entry->state->bs = bs;
+    bs_entry->state->flags = flags;
 
     return bs_queue;
 }
@@ -941,7 +949,7 @@ int bdrv_reopen_multiple(BlockReopenQueue *bs_queue, Error **errp)
     bdrv_drain_all();
 
     QSIMPLEQ_FOREACH(bs_entry, bs_queue, entry) {
-        if (bdrv_reopen_prepare(bs_entry->bs, bs_entry->flags, &local_err)) {
+        if (bdrv_reopen_prepare(bs_entry->state, &local_err)) {
             error_propagate(errp, local_err);
             goto cleanup;
         }
@@ -952,7 +960,7 @@ int bdrv_reopen_multiple(BlockReopenQueue *bs_queue, Error **errp)
      * changes
      */
     QSIMPLEQ_FOREACH(bs_entry, bs_queue, entry) {
-        bdrv_reopen_commit(bs_entry->bs);
+        bdrv_reopen_commit(bs_entry->state);
     }
 
     ret = 0;
@@ -960,8 +968,9 @@ int bdrv_reopen_multiple(BlockReopenQueue *bs_queue, Error **errp)
 cleanup:
     QSIMPLEQ_FOREACH(bs_entry, bs_queue, entry) {
         if (ret && bs_entry->prepared) {
-            bdrv_reopen_abort(bs_entry->bs);
+            bdrv_reopen_abort(bs_entry->state);
         }
+        g_free(bs_entry->state);
         g_free(bs_entry);
     }
     g_free(bs_queue);
@@ -1000,48 +1009,30 @@ int bdrv_reopen(BlockDriverState *bs, int bdrv_flags, Error **errp)
  * commit() for any other BDS that have been left in a prepare() state
  *
  */
-int bdrv_reopen_prepare(BlockDriverState *bs, int flags, Error **errp)
+int bdrv_reopen_prepare(BDRVReopenState *reopen_state, Error **errp)
 {
-    int ret = 0;
+    int ret = -1;
     Error *local_err = NULL;
-    BlockDriver *drv = bs->drv;
+    BlockDriver *drv;
 
-    assert(drv != NULL);
-    assert(bs->reopen_copy == NULL);
-
-    ret = bdrv_flush(bs);
+    assert(reopen_state != NULL);
+    assert(reopen_state->bs->drv != NULL);
+    drv = reopen_state->bs->drv;
+    
+    ret = bdrv_flush(reopen_state->bs);
     if (ret) {
         error_set(errp, QERR_IO_ERROR);
         goto error;
     }
 
-    if (bs->file) {
-        ret = bdrv_reopen_prepare(bs->file, flags, &local_err);
-        if (ret) {
-            if (local_err != NULL) {
-                error_propagate(errp, local_err);
-            } else {
-                error_set(errp, QERR_OPEN_FILE_FAILED, bs->filename);
-            }
-            goto error;
-        }
-    }
-
-    /* Create a duplicate of our current BlockDriverState in the reopen */
-    bs->reopen_copy = g_malloc0(sizeof(BlockDriverState));
-    *bs->reopen_copy = *bs;
-    bs->reopen_copy->reopen_copy = NULL;
-
-    /* The drv is responsible for copying the correct opaque data into the
-     * new buffer (bs->reopen_copy->opaque) */
-
     if (drv->bdrv_reopen_prepare) {
-        ret = drv->bdrv_reopen_prepare(bs, flags, &local_err);
+        ret = drv->bdrv_reopen_prepare(reopen_state, &local_err);
         if (ret) {
             if (local_err != NULL) {
                 error_propagate(errp, local_err);
             } else {
-                error_set(errp, QERR_OPEN_FILE_FAILED, bs->filename);
+                error_set(errp, QERR_OPEN_FILE_FAILED,
+                          reopen_state->bs->filename);
             }
             goto error;
         }
@@ -1049,19 +1040,16 @@ int bdrv_reopen_prepare(BlockDriverState *bs, int flags, Error **errp)
         /* It is currently mandatory to have a bdrv_reopen_prepare()
          * handler for each supported drv. */
         error_set(errp, QERR_BLOCK_FORMAT_FEATURE_NOT_SUPPORTED,
-                  drv->format_name, bs->device_name,
+                  drv->format_name, reopen_state->bs->device_name,
                  "reopening of file");
+        ret = -1;
+        goto error;
     }
     
-    /* set BDS specific flags now */ 
-    bs->reopen_copy->open_flags         = flags;
-    bs->reopen_copy->enable_write_cache = !!(flags & BDRV_O_CACHE_WB);
-    bs->reopen_copy->read_only          = !(flags & BDRV_O_RDWR);
-
-    return ret;
+    return 0;
 
 error:
-    bdrv_reopen_abort(bs);
+    bdrv_reopen_abort(reopen_state);
     return ret;
 }
 
@@ -1070,39 +1058,24 @@ error:
  * makes them final by swapping the staging BlockDriverState contents into
  * the active BlockDriverState contents.
  */
-void bdrv_reopen_commit(BlockDriverState *bs)
+void bdrv_reopen_commit(BDRVReopenState *reopen_state)
 {
-    BlockDriver *drv = bs->drv;
-    BlockDriverState *tmp_bs;
-    BlockDriverState *reopen;
+    BlockDriver *drv;
 
+    assert(reopen_state != NULL);
+    drv = reopen_state->bs->drv;
     assert(drv != NULL);
-    assert(bs->reopen_copy != NULL);
 
-    if (bs->file) {
-        bdrv_reopen_commit(bs->file);
-    }
-
-    /* If there are any driver level actions to take (unlikely) */
+    /* If there are any driver level actions to take */
     if (drv->bdrv_reopen_commit) {
-        drv->bdrv_reopen_commit(bs);
+        drv->bdrv_reopen_commit(reopen_state);
     }
 
-    /* Everything was done in our new bs, so let's swap the new bs into 
-     * the active bs, and then remove the active bs */
-    tmp_bs = g_new0(BlockDriverState, 1);
-    reopen = bs->reopen_copy;
-    *tmp_bs = *bs;
-    *bs = *reopen;
-
-    /* we don't want to recursively close, but do want to clean this one up */
-    tmp_bs->backing_hd = NULL;
-    tmp_bs->file = NULL;
-    tmp_bs->reopen_copy = NULL;
-    bdrv_delete(tmp_bs);
-
-    /* The reopen state was allocate in prepare */
-    g_free(reopen);
+    /* set BDS specific flags now */
+    reopen_state->bs->open_flags         = reopen_state->flags;
+    reopen_state->bs->enable_write_cache = !!(reopen_state->flags &
+                                              BDRV_O_CACHE_WB);
+    reopen_state->bs->read_only = !(reopen_state->flags & BDRV_O_RDWR);
 }
 
 /*
@@ -1111,25 +1084,16 @@ void bdrv_reopen_commit(BlockDriverState *bs)
  *
  * bs->reopen_copy will be freed, and set the NULL
  */
-void bdrv_reopen_abort(BlockDriverState *bs)
+void bdrv_reopen_abort(BDRVReopenState *reopen_state)
 {
-    BlockDriver *drv = bs->drv;
-    BlockDriverState *reopen = bs->reopen_copy;
+    BlockDriver *drv;
 
+    assert(reopen_state != NULL);
+    drv = reopen_state->bs->drv;
     assert(drv != NULL);
 
-    if (bs->file) {
-        bdrv_reopen_abort(bs->file);
-    }
-    
     if (drv->bdrv_reopen_abort) {
-        drv->bdrv_reopen_abort(bs);
-    }
-
-    if (reopen) {
-        reopen->backing_hd = NULL;
-        bdrv_delete(reopen);
-        bs->reopen_copy = NULL;
+        drv->bdrv_reopen_abort(reopen_state);
     }
 }
 
@@ -1394,7 +1358,6 @@ void bdrv_delete(BlockDriverState *bs)
     assert(!bs->dev);
     assert(!bs->job);
     assert(!bs->in_use);
-    assert(bs->reopen_copy == NULL);
 
     /* remove from list, if necessary */
     bdrv_make_anon(bs);

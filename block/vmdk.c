@@ -674,6 +674,25 @@ fail:
     return ret;
 }
 
+/* We have nothing to do for VMDK reopen, stubs just return
+ * success */
+static int vmdk_reopen_prepare(BDRVReopenState *state, Error **errp)
+{
+    return 0;
+}
+
+static void vmdk_reopen_commit(BDRVReopenState *state)
+{
+    return;
+}
+
+static void vmdk_reopen_abort(BDRVReopenState *state)
+{
+    return;
+}
+
+
+
 static int get_whole_cluster(BlockDriverState *bs,
                 VmdkExtent *extent,
                 uint64_t cluster_offset,
@@ -1592,6 +1611,9 @@ static BlockDriver bdrv_vmdk = {
     .instance_size  = sizeof(BDRVVmdkState),
     .bdrv_probe     = vmdk_probe,
     .bdrv_open      = vmdk_open,
+    .bdrv_reopen_prepare = vmdk_reopen_prepare,
+    .bdrv_reopen_commit  = vmdk_reopen_commit,
+    .bdrv_reopen_abort   = vmdk_reopen_abort,
     .bdrv_read      = vmdk_co_read,
     .bdrv_write     = vmdk_co_write,
     .bdrv_close     = vmdk_close,
