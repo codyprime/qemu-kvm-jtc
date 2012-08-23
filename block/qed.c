@@ -512,7 +512,7 @@ out:
     return ret;
 }
 
-/* We have nothing to do for VMDK reopen, stubs just return
+/* We have nothing to do for QED reopen, stubs just return
  * success */
 static int bdrv_qed_reopen_prepare(BDRVReopenState *state, Error **errp)
 {
