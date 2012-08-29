@@ -219,6 +219,9 @@ void assert_no_error(Error *err);
 #define QERR_TOO_MANY_FILES \
     ERROR_CLASS_GENERIC_ERROR, "Too many open files"
 
+#define QERR_TOP_NOT_FOUND \
+    ERROR_CLASS_GENERIC_ERROR, "Top image file %s not found"
+
 #define QERR_UNDEFINED_ERROR \
     ERROR_CLASS_GENERIC_ERROR, "An undefined error has occurred"
 
