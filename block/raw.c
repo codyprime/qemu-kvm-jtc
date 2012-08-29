@@ -9,6 +9,24 @@ static int raw_open(BlockDriverState *bs, int flags)
     return 0;
 }
 
+/* We have nothing to do for raw reopen, stubs just return
+ * success */
+static int raw_reopen_prepare(BDRVReopenState *state, Error **errp)
+{
+    return 0;
+}
+
+static void raw_reopen_commit(BDRVReopenState *state)
+{
+    return;
+}
+
+static void raw_reopen_abort(BDRVReopenState *state)
+{
+    return;
+}
+
+
 static int coroutine_fn raw_co_readv(BlockDriverState *bs, int64_t sector_num,
                                      int nb_sectors, QEMUIOVector *qiov)
 {
@@ -114,6 +132,10 @@ static BlockDriver bdrv_raw = {
 
     .bdrv_open          = raw_open,
     .bdrv_close         = raw_close,
+
+    .bdrv_reopen_prepare  = raw_reopen_prepare,
+    .bdrv_reopen_commit   = raw_reopen_commit,
+    .bdrv_reopen_abort    = raw_reopen_abort,
 
     .bdrv_co_readv          = raw_co_readv,
     .bdrv_co_writev         = raw_co_writev,
