@@ -1404,6 +1404,41 @@
   'returns': 'str' }
 
 ##
+# @block-commit
+#
+# Live commit of data from child image nodes into parent nodes - i.e.,
+# writes data between 'top' and 'base' into 'base'.
+#
+# @device:  the name of the device
+#
+# @base:   #optional The file name of the parent image of the device to write
+#                    data into.  If not specified, this is the original parent
+#                    image.
+#
+# @top:    #optional The file name of the child image, above which data will
+#                    not be committed down.  If not specified, this is one
+#                    layer below the active layer (i.e. active->backing_hd).
+#
+#                    If top == base, that is an error.
+#
+#
+# @speed:  #optional the maximum speed, in bytes per second
+#
+# Returns: Nothing on success
+#          If commit or stream is already active on this device, DeviceInUse
+#          If @device does not exist, DeviceNotFound
+#          If image commit is not supported by this device, NotSupported
+#          If @base does not exist, BaseNotFound
+#          If @top does not exist, TopNotFound
+#          If @speed is invalid, InvalidParameter
+#
+# Since: 1.3
+#
+##
+{ 'command': 'block-commit',
+  'data': { 'device': 'str', '*base': 'str', '*top': 'str',
+            '*speed': 'int' } }
+
 # @migrate_cancel
 #
 # Cancel the current executing migration process.
