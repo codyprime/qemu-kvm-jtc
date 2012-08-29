@@ -505,6 +505,23 @@ out:
     return ret;
 }
 
+/* We have nothing to do for QED reopen, stubs just return
+ * success */
+static int bdrv_qed_reopen_prepare(BDRVReopenState *state, Error **errp)
+{
+    return 0;
+}
+
+static void bdrv_qed_reopen_commit(BDRVReopenState *state)
+{
+    return;
+}
+
+static void bdrv_qed_reopen_abort(BDRVReopenState *state)
+{
+    return;
+}
+
 static void bdrv_qed_close(BlockDriverState *bs)
 {
     BDRVQEDState *s = bs->opaque;
@@ -1564,6 +1581,9 @@ static BlockDriver bdrv_qed = {
     .bdrv_rebind              = bdrv_qed_rebind,
     .bdrv_open                = bdrv_qed_open,
     .bdrv_close               = bdrv_qed_close,
+    .bdrv_reopen_prepare      = bdrv_qed_reopen_prepare,
+    .bdrv_reopen_commit       = bdrv_qed_reopen_commit,
+    .bdrv_reopen_abort        = bdrv_qed_reopen_abort,
     .bdrv_create              = bdrv_qed_create,
     .bdrv_co_is_allocated     = bdrv_qed_co_is_allocated,
     .bdrv_make_empty          = bdrv_qed_make_empty,
