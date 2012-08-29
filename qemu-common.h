@@ -245,6 +245,7 @@ typedef struct NICInfo NICInfo;
 typedef struct HCIInfo HCIInfo;
 typedef struct AudioState AudioState;
 typedef struct BlockDriverState BlockDriverState;
+typedef struct BDRVReopenState BDRVReopenState;
 typedef struct DriveInfo DriveInfo;
 typedef struct DisplayState DisplayState;
 typedef struct DisplayChangeListener DisplayChangeListener;
