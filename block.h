@@ -201,6 +201,7 @@ int bdrv_commit_all(void);
 int bdrv_change_backing_file(BlockDriverState *bs,
     const char *backing_file, const char *backing_fmt);
 void bdrv_register(BlockDriver *bdrv);
+BlockDriverState *bdrv_find_base(BlockDriverState *bs);
 int bdrv_delete_intermediate(BlockDriverState *active, BlockDriverState *top,
                              BlockDriverState *base);
 BlockDriverState *bdrv_find_child(BlockDriverState *active,
