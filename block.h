@@ -213,6 +213,7 @@ int bdrv_drop_intermediate(BlockDriverState *active, BlockDriverState *top,
                            BlockDriverState *base);
 BlockDriverState *bdrv_find_overlay(BlockDriverState *active,
                                     BlockDriverState *bs);
+BlockDriverState *bdrv_find_base(BlockDriverState *bs);
 
 typedef struct BdrvCheckResult {
     int corruptions;
