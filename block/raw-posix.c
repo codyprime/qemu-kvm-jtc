@@ -140,6 +140,19 @@ typedef struct BDRVRawState {
 #endif
 } BDRVRawState;
 
+typedef struct BDRVRawReopenState {
+    BDRVReopenState reopen_state;
+    int fd;
+    int open_flags;
+#ifdef CONFIG_LINUX_AIO
+    int use_aio;
+    void *aio_ctx;
+#endif
+    uint8_t *aligned_buf;
+    unsigned aligned_buf_size;
+    BDRVRawState *stash_s;
+} BDRVRawReopenState;
+
 static int fd_open(BlockDriverState *bs);
 static int64_t raw_getlength(BlockDriverState *bs);
 
@@ -307,6 +320,115 @@ static int raw_open(BlockDriverState *bs, const char *filename, int flags)
     s->type = FTYPE_FILE;
     return raw_open_common(bs, filename, flags, 0);
 }
+
+static int raw_reopen_prepare(BDRVReopenState *state, Error **errp)
+{
+    BDRVRawState *s;
+    BDRVRawReopenState *raw_s;
+    int ret = 0;
+
+    assert(state != NULL);
+    assert(state->bs != NULL);
+
+    s = state->bs->opaque;
+
+    state->opaque = g_malloc0(sizeof(BDRVRawReopenState));
+    raw_s = state->opaque;
+    raw_s->use_aio = s->use_aio;
+    raw_s->aio_ctx = s->aio_ctx;
+
+    raw_parse_flags(state->flags, &raw_s->open_flags);
+    raw_set_aio(&raw_s->aio_ctx, &raw_s->use_aio, state->flags);
+
+    /*
+     * If we didn't have BDRV_O_NOCACHE set before, we may not have allocated
+     * aligned_buf
+     */
+    if ((state->flags & BDRV_O_NOCACHE)) {
+        /*
+         * Allocate a buffer for read/modify/write cycles.  Choose the size
+         * pessimistically as we don't know the block size yet.
+         */
+        raw_s->aligned_buf_size = 32 * MAX_BLOCKSIZE;
+        raw_s->aligned_buf = qemu_memalign(MAX_BLOCKSIZE,
+                                           raw_s->aligned_buf_size);
+
+        if (raw_s->aligned_buf == NULL) {
+            ret = -1;
+            goto error;
+        }
+    }
+
+    int fcntl_flags = O_APPEND | O_ASYNC | O_NONBLOCK;
+#ifdef O_NOATIME
+    fcntl_flags |= O_NOATIME;
+#endif
+    if ((raw_s->open_flags & ~fcntl_flags) == (s->open_flags & ~fcntl_flags)) {
+        /* dup the original fd */
+        /* TODO: use qemu fcntl wrapper */
+        raw_s->fd = fcntl(s->fd, F_DUPFD_CLOEXEC, 0);
+        if (raw_s->fd == -1) {
+            ret = -1;
+            goto error;
+        }
+        ret = fcntl_setfl(raw_s->fd, raw_s->open_flags);
+    } else {
+        assert(!(raw_s->open_flags & O_CREAT));
+        raw_s->fd = qemu_open(state->bs->filename, raw_s->open_flags);
+        if (raw_s->fd == -1) {
+            ret = -1;
+        }
+    }
+error:
+    return ret;
+}
+
+
+static void raw_reopen_commit(BDRVReopenState *state)
+{
+    BDRVRawReopenState *raw_s = state->opaque;
+    BDRVRawState *s = state->bs->opaque;
+
+    if (raw_s->aligned_buf != NULL) {
+        if (s->aligned_buf) {
+            qemu_vfree(s->aligned_buf);
+        }
+        s->aligned_buf      = raw_s->aligned_buf;
+        s->aligned_buf_size = raw_s->aligned_buf_size;
+    }
+
+    s->open_flags = raw_s->open_flags;
+
+    qemu_close(s->fd);
+    s->fd = raw_s->fd;
+    s->use_aio = raw_s->use_aio;
+    s->aio_ctx = raw_s->aio_ctx;
+
+    g_free(state->opaque);
+    state->opaque = NULL;
+}
+
+
+static void raw_reopen_abort(BDRVReopenState *state)
+{
+    BDRVRawReopenState *raw_s = state->opaque;
+
+     /* nothing to do if NULL, we didn't get far enough */
+    if (raw_s == NULL) {
+        return;
+    }
+
+    if (raw_s->fd >= 0) {
+        qemu_close(raw_s->fd);
+        raw_s->fd = -1;
+        if (raw_s->aligned_buf != NULL) {
+            qemu_vfree(raw_s->aligned_buf);
+        }
+    }
+    g_free(state->opaque);
+    state->opaque = NULL;
+}
+
 
 /* XXX: use host sector size if necessary with:
 #ifdef DIOCGSECTORSIZE
@@ -760,6 +882,9 @@ static BlockDriver bdrv_file = {
     .instance_size = sizeof(BDRVRawState),
     .bdrv_probe = NULL, /* no probe for protocols */
     .bdrv_file_open = raw_open,
+    .bdrv_reopen_prepare = raw_reopen_prepare,
+    .bdrv_reopen_commit = raw_reopen_commit,
+    .bdrv_reopen_abort = raw_reopen_abort,
     .bdrv_close = raw_close,
     .bdrv_create = raw_create,
     .bdrv_co_discard = raw_co_discard,
