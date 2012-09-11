@@ -141,7 +141,6 @@ typedef struct BDRVRawState {
 } BDRVRawState;
 
 typedef struct BDRVRawReopenState {
-    BDRVReopenState reopen_state;
     int fd;
     int open_flags;
 #ifdef CONFIG_LINUX_AIO
