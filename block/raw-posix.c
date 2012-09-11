@@ -185,6 +185,40 @@ static int raw_normalize_devicepath(const char **filename)
 }
 #endif
 
+static int raw_set_aio(void **aio_ctx, int *use_aio, int bdrv_flags)
+{
+#ifdef CONFIG_LINUX_AIO
+    int ret = -1;
+    assert(aio_ctx != NULL);
+    assert(use_aio != NULL);
+    /*
+     * Currently Linux do AIO only for files opened with O_DIRECT
+     * specified so check NOCACHE flag too
+     */
+    if ((bdrv_flags & (BDRV_O_NOCACHE|BDRV_O_NATIVE_AIO)) ==
+                      (BDRV_O_NOCACHE|BDRV_O_NATIVE_AIO)) {
+
+        /* if non-NULL, laio_init() has already been run */
+        if (*aio_ctx == NULL) {
+            *aio_ctx = laio_init();
+            if (!*aio_ctx) {
+                goto error;
+            }
+        }
+        *use_aio = 1;
+    } else {
+        *use_aio = 0;
+    }
+
+    ret = 0;
+
+error:
+    return ret;
+#else
+    return 0;
+#endif
+}
+
 static int raw_open_common(BlockDriverState *bs, const char *filename,
                            int bdrv_flags, int open_flags)
 {
@@ -239,26 +273,7 @@ static int raw_open_common(BlockDriverState *bs, const char *filename,
         goto out_free_buf;
     }
 
-#ifdef CONFIG_LINUX_AIO
-    /*
-     * Currently Linux do AIO only for files opened with O_DIRECT
-     * specified so check NOCACHE flag too
-     */
-    if ((bdrv_flags & (BDRV_O_NOCACHE|BDRV_O_NATIVE_AIO)) ==
-                      (BDRV_O_NOCACHE|BDRV_O_NATIVE_AIO)) {
-
-        s->aio_ctx = laio_init();
-        if (!s->aio_ctx) {
-            goto out_free_buf;
-        }
-        s->use_aio = 1;
-    } else
-#endif
-    {
-#ifdef CONFIG_LINUX_AIO
-        s->use_aio = 0;
-#endif
-    }
+    raw_set_aio(&s->aio_ctx, &s->use_aio, bdrv_flags);
 
 #ifdef CONFIG_XFS
     if (platform_test_xfs_fd(s->fd)) {
