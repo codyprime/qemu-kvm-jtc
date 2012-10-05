@@ -3123,18 +3123,44 @@ int bdrv_snapshot_load_tmp(BlockDriverState *bs,
     return -ENOTSUP;
 }
 
+/* backing_file can either be relative, or absolute.  If it is
+ * relative, it must be relative to the chain.  So, passing in
+ * bs->filename from a BDS as backing_file should not be done,
+ * as that may be relative to the CWD rather than the chain. */
 BlockDriverState *bdrv_find_backing_image(BlockDriverState *bs,
         const char *backing_file)
 {
-    if (!bs->drv) {
+    char filename_full[PATH_MAX];
+    char backing_file_full[PATH_MAX];
+    char filename_tmp[PATH_MAX];
+    BlockDriverState *curr_bs = NULL;
+
+    if (!bs) {
         return NULL;
     }
 
-    if (bs->backing_hd) {
-        if (strcmp(bs->backing_file, backing_file) == 0) {
-            return bs->backing_hd;
-        } else {
-            return bdrv_find_backing_image(bs->backing_hd, backing_file);
+    for (curr_bs = bs; curr_bs->backing_hd; curr_bs = curr_bs->backing_hd) {
+        /* If not an absolute filename path, make it relative to the current
+         * image's filename path */
+        path_combine(filename_tmp, sizeof(filename_tmp),
+                     curr_bs->filename, backing_file);
+
+        /* We are going to compare absolute pathnames */
+        if (!realpath(filename_tmp, filename_full)) {
+            continue;
+        }
+
+        /* We need to make sure the backing filename we are comparing against
+         * is relative to the current image filename (or absolute) */
+        path_combine(filename_tmp, sizeof(filename_tmp),
+                     curr_bs->filename, curr_bs->backing_file);
+
+        if (!realpath(filename_tmp, backing_file_full)) {
+            continue;
+        }
+
+        if (strcmp(backing_file_full, filename_full) == 0) {
+            return curr_bs->backing_hd;
         }
     }
 
