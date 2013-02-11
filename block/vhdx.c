@@ -24,6 +24,7 @@
 #if defined(CONFIG_UUID)
 #include <uuid/uuid.h>
 #endif
+#include "qemu/crc32c.h"
 
 /* Structures and fields present in the VHDX file */
 
@@ -31,9 +32,10 @@
 /* ---- HEADER SECTION STRUCTURES ---- */
 
 typedef struct vhdx_file_identifier {
-    uint64_t    signature;      /* "vhdxfile" */
-    uint16_t    creator[256];   /* optional; utf-16 string to identify
-                                   the vhdx file creator.  Diagnotistic only */
+    uint64_t    signature;              /* "vhdxfile" in ASCII */
+    uint16_t    creator[256];           /* optional; utf-16 string to identify
+                                           the vhdx file creator.  Diagnotistic
+                                           only */
 } vhdx_file_identifier;
 
 
@@ -46,11 +48,11 @@ typedef struct vhdx_header {
                                            sequence number is valid */
     uint8_t     file_write_guid[16];    /* 128 bit unique identifier. Must be
                                            updated to new, unique value before
-                                           the first modification is made to 
+                                           the first modification is made to
                                            file */
     uint8_t     data_write_guid[16];    /* 128 bit unique identifier. Must be
                                            updated to new, unique value before
-                                           the first modification is made to 
+                                           the first modification is made to
                                            visible data.   Visbile data is
                                            defined as:
                                                     - system & user metadata
@@ -58,31 +60,31 @@ typedef struct vhdx_header {
                                                     - disk size
                                                     - any change that will
                                                       cause the virtual disk
-                                                      sector read to differ 
-                                           
+                                                      sector read to differ
+
                                            This does not need to change if
                                            blocks are re-arranged */
     uint8_t     log_guid[16];           /* 128 bit unique identifier. If zero,
                                            there is no valid log. If non-zero,
                                            log entries with this guid are
                                            valid. */
-    uint16_t    log_version;            /* version of the log format.  Must not be
+    uint16_t    log_version;            /* version of the log format. Mustn't be
                                            zero, unless log_guid is also zero */
     uint16_t    version;                /* version of th evhdx file.  Currently,
                                            only supported version is "1" */
-    uint32_t    log_length;             /* length of the log.  Must be a multiple
-                                           of 1024*1024 bytes */
-    uint32_t    log_offset              /* byte offset in the file of the log.  Must
-                                           also be a multiple of 1024*1024 bytes */
+    uint32_t    log_length;             /* length of the log.  Must be multiple
+                                           of 1MB */
+    uint32_t    log_offset              /* byte offset in the file of the log.
+                                           Must also be a multiple of 1MB */
     uint8_t     reserved[502];
 } vhdx_header;
 
 
 /* Header for the region table block */
 typedef struct vhdx_region_table_header {
-    uint32_t    signature;      /* "regi" in ASCII */
-    uint32_t    checksum;       /* CRC-32C hash of the 64KB table */
-    uint32_t    entry_count;    /* number of valid entries */
+    uint32_t    signature;              /* "regi" in ASCII */
+    uint32_t    checksum;               /* CRC-32C hash of the 64KB table */
+    uint32_t    entry_count;            /* number of valid entries */
     uint32_t    reserved;
 } vhdx_region_table_header;
 
@@ -91,14 +93,14 @@ typedef struct vhdx_region_table_header {
  *  There are two known region table properties.  Both are required.
  *  BAT (block allocation table):  2DC27766F62342009D64115E9BFD4A08
  *  Metadata:                      8B7CA20647904B9AB8FE575F050F886E
- */  
+ */
 typedef struct vhdx_region_table_entry {
-    uint8_t     guid[16];       /* 128-bit unique identifier */
-    uint64_t    file_offset;    /* offset of the object in the file.  Must be
-                                   multiple of 1MB */
-    uint32_t    length;         /* length, in bytes, of the object */
-    uint32_t    required:1;     /* indicates if this region must be recognized
-                                   in order to load the file */
+    uint8_t     guid[16];               /* 128-bit unique identifier */
+    uint64_t    file_offset;            /* offset of the object in the file.
+                                           Must be multiple of 1MB */
+    uint32_t    length;                 /* length, in bytes, of the object */
+    uint32_t    required:1;             /* 1 if this region must be recognized
+                                           in order to load the file */
     uint32_t    reserved:31;
 } vhdx_region_table_entry;
 
@@ -123,7 +125,7 @@ typedef struct vhdx_log_entry_header {
                                            May not be zero. */
     uint32_t    descriptor_count;       /* number of descriptors in this log
                                            entry, must be >= 0 */
-    uint32_t    reserved;   
+    uint32_t    reserved;
     uint8_t     log_guid[16];           /* value of the log_guid from
                                            vhdx_header.  If not found in
                                            vhdx_header, it is invalid */
@@ -140,7 +142,7 @@ typedef struct vhdx_log_zero_descriptor {
     uint64_t    zero_length;            /* length of the section to zero */
     uint64_t    file_offset;            /* file offset to write zeros - multiple
                                            of 4kB */
-    uint64_t    sequence_number;        /* must match same field in 
+    uint64_t    sequence_number;        /* must match same field in
                                            vhdx_log_entry_header */
 } vhdx_log_zero_descriptor;
 
@@ -174,37 +176,38 @@ typedef vhdx_log_data_sector {
 /* ---- METADATA REGION STRUCTURES ---- */
 
 typedef struct vhdx_metadata_table_header {
-    uint64_t    signature;      /* "metadata" in ASCII */
+    uint64_t    signature;              /* "metadata" in ASCII */
     uint16_t    reserved;
-    uint16_t    entry_count;    /* number of entries in table.  <= 2047 */
+    uint16_t    entry_count;            /* number table entries. <= 2047 */
     uint32_t    reserved2[5];
 } vhdx_metadata_table_header;
 
 typedef struct vhdx_metadata_table_entry {
-    uint8_t     item_id[16];        /* 128-bit identifier for metadata */
-    uint32_t    offset;             /* byte offset of the metadata.  At least
-                                       64kB.  Relative to start of metadata
-                                       region */
-                                    /* note: if length is zero, so is offset */
-    uint32_t    length;             /* length in bytes of metadata. <= 1MB. */ 
-    uint32_t    is_user:1;          /* 1: user metadata, 0: system metadata
-                                       max of 1024 entries can have this set */
-    uint32_t    is_virtual_disk:1;  /* See spec.  1: virtual disk metadata
+    uint8_t     item_id[16];            /* 128-bit identifier for metadata */
+    uint32_t    offset;                 /* byte offset of the metadata.  At
+                                           least 64kB.  Relative to start of
+                                           metadata region */
+                                        /* note: if length = 0, so is offset */
+    uint32_t    length;                 /* length of metadata. <= 1MB. */
+    uint32_t    is_user:1;              /* 1: user metadata, 0: system metadata
+                                           1024 entries max can have this set */
+    uint32_t    is_virtual_disk:1;      /* See spec.  1: virtual disk metadata
                                                   0: file metadata */
-    uint32_t    is_required:1;      /* 1: parser must understand this data */
+    uint32_t    is_required:1;          /* 1: parser must understand this
+                                           data */
     uint32_t    reserved:29;
     uint32_t    reserved2;
 }
 
 typedef struct vhdx_virtual_disk_size {
-    uint64_t    virtual_disk_size;  /* Size of the virtual disk, in bytes.
-                                       Must be a multiple of the sector size,
-                                       max of 64TB */
+    uint64_t    virtual_disk_size;      /* Size of the virtual disk, in bytes.
+                                           Must be multiple of the sector size,
+                                           max of 64TB */
 } vhdx_virtual_disk_size;
 
 typedef struct vhdx_page83_data {
-    uint8_t     page_83_data[16];   /* unique id for scsi devices that support
-                                       page 0x83 */
+    uint8_t     page_83_data[16];       /* unique id for scsi devices that
+                                           support page 0x83 */
 } vhdx_page83_data;
 
 typedef struct vhdx_virtual_disk_logical_sector_size {
@@ -218,18 +221,18 @@ typedef struct vhdx_virtual_disk_physical_sector_size {
 } vhdx_virtual_disk_physical_sector_size;
 
 typedef struct vhdx_parent_locator_header {
-    uint8_t     locator_type[16];  /* type of the parent virtual disk. */
+    uint8_t     locator_type[16];       /* type of the parent virtual disk. */
     uint16_t    reserved;
-    uint16_t    key_value_count;   /* number of key/value pairs for this
-                                      locator */
+    uint16_t    key_value_count;        /* number of key/value pairs for this
+                                           locator */
 } vhdx_parent_locator_header;
 
 /* key and value strings are UNICODE strings, UTF-16 LE encoding, no NULs */
 typedef struct vhdx_parent_locator_entry {
-    uint32_t    key_offset;         /* offset within metadata for key, > 0 */
-    uint32_t    value_offset;       /* offset within metadata for value, >0 */
-    uint16_t    key_length;         /* length of entry key, > 0 */
-    uint16_t    value_length;       /* length of entry value, > 0 */
+    uint32_t    key_offset;             /* offset in metadata for key, > 0 */
+    uint32_t    value_offset;           /* offset in metadata for value, >0 */
+    uint16_t    key_length;             /* length of entry key, > 0 */
+    uint16_t    value_length;           /* length of entry value, > 0 */
 } vhdx_parent_locator_entry;
 
 
@@ -254,8 +257,8 @@ static uint32_t vhdx_checksum(uint8_t* buf, size_t size)
     return 0;
 }
 
-/* 
- * Per the MS VHDX Specification, for every VHDX file: 
+/*
+ * Per the MS VHDX Specification, for every VHDX file:
  *      - The header section is fixed size - 1 MB
  *      - The header section is always the first "object"
  *      - The first 64KB of the header is the File Identifier
@@ -267,8 +270,9 @@ static uint32_t vhdx_checksum(uint8_t* buf, size_t size)
  */
 static int vhdx_probe(const uint8_t *buf, int buf_size, const char *filename)
 {
-    if (buf_size >= 8 && !strncmp((char *)buf, "conectix", 8))
-	return 100;
+    if (buf_size >= 8 && !strncmp((char *)buf, "vhdxfile", 8)) {
+        return 100;
+    }
     return 0;
 }
 
