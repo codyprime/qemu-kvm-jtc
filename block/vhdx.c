@@ -74,7 +74,7 @@ typedef struct vhdx_header {
                                            only supported version is "1" */
     uint32_t    log_length;             /* length of the log.  Must be multiple
                                            of 1MB */
-    uint32_t    log_offset              /* byte offset in the file of the log.
+    uint32_t    log_offset;             /* byte offset in the file of the log.
                                            Must also be a multiple of 1MB */
     uint8_t     reserved[502];
 } vhdx_header;
@@ -158,7 +158,7 @@ typedef struct vhdx_log_data_descriptor {
 } vhdx_log_data_descriptor;
 
 
-typedef vhdx_log_data_sector {
+typedef struct vhdx_log_data_sector {
     uint32_t    data_signature;         /* "data" in ASCII */
     uint32_t    sequence_high;          /* 4 MSB of 8 byte sequence_number */
     uint8_t     data[4084];             /* raw data, bytes 8-4091 (inclusive).
@@ -197,7 +197,7 @@ typedef struct vhdx_metadata_table_entry {
                                            data */
     uint32_t    reserved:29;
     uint32_t    reserved2;
-}
+} vhdx_metadata_table_entry;
 
 typedef struct vhdx_virtual_disk_size {
     uint64_t    virtual_disk_size;      /* Size of the virtual disk, in bytes.
@@ -248,6 +248,7 @@ typedef struct BDRVVHDXState {
 
 } BDRVVHDXState;
 
+#if 0
 /* CRC-32C, Castagnoli polynomial, code 0x11EDC6F41 */
 static uint32_t vhdx_checksum(uint8_t* buf, size_t size)
 {
@@ -256,6 +257,7 @@ static uint32_t vhdx_checksum(uint8_t* buf, size_t size)
 
     return 0;
 }
+#endif
 
 /*
  * Per the MS VHDX Specification, for every VHDX file:
@@ -278,8 +280,8 @@ static int vhdx_probe(const uint8_t *buf, int buf_size, const char *filename)
 
 static int vhdx_open(BlockDriverState *bs, int flags)
 {
-    BDRVVHDXState *s = bs->opaque;
-    int ret;
+//    BDRVVHDXState *s = bs->opaque;
+    int ret = 0;
 
 
     /* TODO */
@@ -298,12 +300,12 @@ static int vhdx_reopen_prepare(BDRVReopenState *state,
 static int vhdx_read(BlockDriverState *bs, int64_t sector_num,
                     uint8_t *buf, int nb_sectors)
 {
-    BDRVVHDXState *s = bs->opaque;
-    int ret;
+//    BDRVVHDXState *s = bs->opaque;
+    int ret = 0;
 
     /* TODO */
 
-    return 0;
+    return ret;
 }
 
 static coroutine_fn int vhdx_co_read(BlockDriverState *bs, int64_t sector_num,
@@ -323,7 +325,7 @@ static coroutine_fn int vhdx_co_read(BlockDriverState *bs, int64_t sector_num,
 static int vhdx_write(BlockDriverState *bs, int64_t sector_num,
     const uint8_t *buf, int nb_sectors)
 {
-    BDRVVHDXState *s = bs->opaque;
+//    BDRVVHDXState *s = bs->opaque;
 
     /* TODO */
 
@@ -358,7 +360,7 @@ static void vhdx_close(BlockDriverState *bs)
 
     /* TODO */
 
-    BDRVVHDXState *s = bs->opaque;
+    //BDRVVHDXState *s = bs->opaque;
 }
 
 static QEMUOptionParameter vhdx_create_options[] = {
@@ -380,16 +382,14 @@ static BlockDriver bdrv_vhdx = {
     .format_name    = "vhdx",
     .instance_size  = sizeof(BDRVVHDXState),
 
-    .bdrv_probe     = vhdx_probe,
-    .bdrv_open      = vhdx_open,
-    .bdrv_close     = vhdx_close,
-    .bdrv_reopen_prepare = vhdx_reopen_prepare,
-    .bdrv_create    = vhdx_create,
-
+    .bdrv_probe             = vhdx_probe,
+    .bdrv_open              = vhdx_open,
+    .bdrv_close             = vhdx_close,
+    .bdrv_reopen_prepare    = vhdx_reopen_prepare,
+    .bdrv_create            = vhdx_create,
     .bdrv_read              = vhdx_co_read,
     .bdrv_write             = vhdx_co_write,
-
-    .create_options = vhdx_create_options,
+    .create_options         = vhdx_create_options,
 };
 
 static void bdrv_vhdx_init(void)
