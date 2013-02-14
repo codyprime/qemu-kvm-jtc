@@ -28,6 +28,22 @@
 
 /* Structures and fields present in the VHDX file */
 
+/* The header section has the following blocks,
+ * each block is 64KB:
+ *
+ * _____________________________________________________________________________
+ * | File Id. |   Header 1    | Header 2   | Region Table |  Reserverd (768KB) |
+ * 0.........64KB...........128KB........192KB..........256KB................1MB
+ * -----------------------------------------------------------------------------
+ */
+
+#define VHDX_HEADER_BLOCK_SIZE      (64*1024)
+
+#define VHDX_FILE_ID_OFFSET         0
+#define VHDX_HEADER1_OFFSET         (VHDX_HEADER_BLOCK_SIZE*1)
+#define VHDX_HEADER2_OFFSET         (VHDX_HEADER_BLOCK_SIZE*2)
+#define VHDX_REGION_TABLE_OFFSET    (VHDX_HEADER_BLOCK_SIZE*3)
+
 
 /* ---- HEADER SECTION STRUCTURES ---- */
 
@@ -39,10 +55,15 @@ typedef struct vhdx_file_identifier {
 } vhdx_file_identifier;
 
 
-typedef struct vhdx_header {
+#define VHDX_HEADER_SIZE (4*1024)   /* although the vhdx_header struct in disk
+                                       is only 582 bytes, for purposes of crc
+                                       the header is the first 4KB of the 64KB
+                                       block */
+
+typedef struct QEMU_PACKED vhdx_header {
     uint32_t    signature;              /* "head" in ASCII */
     uint32_t    checksum;               /* CRC-32C hash of the whole header */
-    uint64_t    sequence_name;          /* Seq number of this header.  Each
+    uint64_t    sequence_number;        /* Seq number of this header.  Each
                                            VHDX file has 2 of these headers,
                                            and only the header with the highest
                                            sequence number is valid */
@@ -74,14 +95,19 @@ typedef struct vhdx_header {
                                            only supported version is "1" */
     uint32_t    log_length;             /* length of the log.  Must be multiple
                                            of 1MB */
-    uint32_t    log_offset;             /* byte offset in the file of the log.
+    uint64_t    log_offset;             /* byte offset in the file of the log.
                                            Must also be a multiple of 1MB */
-    uint8_t     reserved[502];
 } vhdx_header;
 
+/* 4KB in packed data size, not to be used except for initial data read */
+typedef struct QEMU_PACKED vhdx_header_padded {
+    vhdx_header header;
+    uint8_t     reserved[502];          /* per the VHDX spec */
+    uint8_t     reserved_[3514];        /* for the initial packed struct read */
+} vhdx_header_padded;
 
 /* Header for the region table block */
-typedef struct vhdx_region_table_header {
+typedef struct QEMU_PACKED vhdx_region_table_header {
     uint32_t    signature;              /* "regi" in ASCII */
     uint32_t    checksum;               /* CRC-32C hash of the 64KB table */
     uint32_t    entry_count;            /* number of valid entries */
@@ -94,7 +120,7 @@ typedef struct vhdx_region_table_header {
  *  BAT (block allocation table):  2DC27766F62342009D64115E9BFD4A08
  *  Metadata:                      8B7CA20647904B9AB8FE575F050F886E
  */
-typedef struct vhdx_region_table_entry {
+typedef struct QEMU_PACKED vhdx_region_table_entry {
     uint8_t     guid[16];               /* 128-bit unique identifier */
     uint64_t    file_offset;            /* offset of the object in the file.
                                            Must be multiple of 1MB */
@@ -114,7 +140,7 @@ typedef struct vhdx_region_table_entry {
 
 /* ---- LOG ENTRY STRUCTURES ---- */
 
-typedef struct vhdx_log_entry_header {
+typedef struct QEMU_PACKED vhdx_log_entry_header {
     uint32_t    signature;              /* "loge" in ASCII */
     uint32_t    checksum;               /* CRC-32C hash of the 64KB table */
     uint32_t    entry_length;           /* length in bytes, multiple of 1MB */
@@ -136,7 +162,7 @@ typedef struct vhdx_log_entry_header {
 } vhdx_log_entry_header;
 
 
-typedef struct vhdx_log_zero_descriptor {
+typedef struct QEMU_PACKED vhdx_log_zero_descriptor {
     uint32_t    zero_signature;         /* "zero" in ASCII */
     uint32_t    reserver;
     uint64_t    zero_length;            /* length of the section to zero */
@@ -147,7 +173,7 @@ typedef struct vhdx_log_zero_descriptor {
 } vhdx_log_zero_descriptor;
 
 
-typedef struct vhdx_log_data_descriptor {
+typedef struct QEMU_PACKED vhdx_log_data_descriptor {
     uint32_t    data_signature;         /* "desc" in ASCII */
     uint32_t    trailing_bytes;         /* bytes 4092-4096 of the data sector */
     uint64_t    leading_bytes;          /* bytes 0-7 of the data sector */
@@ -158,7 +184,7 @@ typedef struct vhdx_log_data_descriptor {
 } vhdx_log_data_descriptor;
 
 
-typedef struct vhdx_log_data_sector {
+typedef struct QEMU_PACKED vhdx_log_data_sector {
     uint32_t    data_signature;         /* "data" in ASCII */
     uint32_t    sequence_high;          /* 4 MSB of 8 byte sequence_number */
     uint8_t     data[4084];             /* raw data, bytes 8-4091 (inclusive).
@@ -175,14 +201,14 @@ typedef struct vhdx_log_data_sector {
 
 /* ---- METADATA REGION STRUCTURES ---- */
 
-typedef struct vhdx_metadata_table_header {
+typedef struct QEMU_PACKED vhdx_metadata_table_header {
     uint64_t    signature;              /* "metadata" in ASCII */
     uint16_t    reserved;
     uint16_t    entry_count;            /* number table entries. <= 2047 */
     uint32_t    reserved2[5];
 } vhdx_metadata_table_header;
 
-typedef struct vhdx_metadata_table_entry {
+typedef struct QEMU_PACKED vhdx_metadata_table_entry {
     uint8_t     item_id[16];            /* 128-bit identifier for metadata */
     uint32_t    offset;                 /* byte offset of the metadata.  At
                                            least 64kB.  Relative to start of
@@ -199,28 +225,28 @@ typedef struct vhdx_metadata_table_entry {
     uint32_t    reserved2;
 } vhdx_metadata_table_entry;
 
-typedef struct vhdx_virtual_disk_size {
+typedef struct QEMU_PACKED vhdx_virtual_disk_size {
     uint64_t    virtual_disk_size;      /* Size of the virtual disk, in bytes.
                                            Must be multiple of the sector size,
                                            max of 64TB */
 } vhdx_virtual_disk_size;
 
-typedef struct vhdx_page83_data {
+typedef struct QEMU_PACKED vhdx_page83_data {
     uint8_t     page_83_data[16];       /* unique id for scsi devices that
                                            support page 0x83 */
 } vhdx_page83_data;
 
-typedef struct vhdx_virtual_disk_logical_sector_size {
+typedef struct QEMU_PACKED vhdx_virtual_disk_logical_sector_size {
     uint32_t    logical_sector_size;    /* virtual disk sector size (in bytes).
                                            Can only be 512 or 4096 bytes */
 } vhdx_virtual_disk_logical_sector_size;
 
-typedef struct vhdx_virtual_disk_physical_sector_size {
+typedef struct QEMU_PACKED vhdx_virtual_disk_physical_sector_size {
     uint32_t    physical_sector_size;   /* physical sector size (in bytes).
                                            Can only be 512 or 4096 bytes */
 } vhdx_virtual_disk_physical_sector_size;
 
-typedef struct vhdx_parent_locator_header {
+typedef struct QEMU_PACKED vhdx_parent_locator_header {
     uint8_t     locator_type[16];       /* type of the parent virtual disk. */
     uint16_t    reserved;
     uint16_t    key_value_count;        /* number of key/value pairs for this
@@ -228,7 +254,7 @@ typedef struct vhdx_parent_locator_header {
 } vhdx_parent_locator_header;
 
 /* key and value strings are UNICODE strings, UTF-16 LE encoding, no NULs */
-typedef struct vhdx_parent_locator_entry {
+typedef struct QEMU_PACKED vhdx_parent_locator_entry {
     uint32_t    key_offset;             /* offset in metadata for key, > 0 */
     uint32_t    value_offset;           /* offset in metadata for value, >0 */
     uint16_t    key_length;             /* length of entry key, > 0 */
@@ -244,20 +270,31 @@ typedef struct vhdx_parent_locator_entry {
 typedef struct BDRVVHDXState {
     CoMutex lock;
 
+    int curr_header;
+    vhdx_header *headers[2];
+    uint8_t region_table_buf[VHDX_HEADER_BLOCK_SIZE];
+
     /* TODO */
 
 } BDRVVHDXState;
 
-#if 0
+#define vhdx_validate_checksum(block, size, old, valid)                    \
+                (old) = (block)->checksum;                                 \
+                printf("read checksum: %08" PRIx32 "\n",(old));            \
+                (block)->checksum = 0;                                     \
+                (valid) = (old) == vhdx_checksum((uint8_t *)(block), (size)) ? 1 : 0; \
+                (block)->checksum = (old);
+                
+
 /* CRC-32C, Castagnoli polynomial, code 0x11EDC6F41 */
 static uint32_t vhdx_checksum(uint8_t* buf, size_t size)
 {
-
-    /* TODO */
-
-    return 0;
+    uint32_t chksum;
+    printf("computing checksum for length %zu\n", size);
+    chksum =  crc32c(0, buf, size);
+    printf("vhdx_checksum: %08" PRIx32 "\n", chksum);
+    return chksum;
 }
-#endif
 
 /*
  * Per the MS VHDX Specification, for every VHDX file:
@@ -278,11 +315,100 @@ static int vhdx_probe(const uint8_t *buf, int buf_size, const char *filename)
     return 0;
 }
 
+static void vhdx_unpack_header(vhdx_header *hdr, vhdx_header_padded *hdr_pad)
+{
+    hdr->signature = hdr_pad->header.signature;
+    hdr->checksum = hdr_pad->header.checksum;
+    hdr->sequence_number = hdr_pad->header.sequence_number;
+    hdr->log_version = hdr_pad->header.log_version;
+    hdr->version = hdr_pad->header.version;
+    hdr->log_length = hdr_pad->header.log_length;
+    hdr->log_offset = hdr_pad->header.log_offset;
+
+    memcpy(hdr->file_write_guid, hdr_pad->header.file_write_guid,
+           sizeof(hdr->file_write_guid));
+    memcpy(hdr->data_write_guid, hdr_pad->header.data_write_guid,
+           sizeof(hdr->data_write_guid));
+    memcpy(hdr->log_guid,  hdr_pad->header.log_guid, sizeof(hdr->log_guid));
+
+}
+
+/* opens the specified header block from the VHDX file header section */
+static int vhdx_open_header(BlockDriverState *bs, BDRVVHDXState *s)
+{
+    int ret = 0;
+    uint32_t checksum_orig;
+    int is_valid;
+    vhdx_header *header1;
+    vhdx_header *header2;
+    uint64_t h1_seq = 0;
+    uint64_t h2_seq = 0;
+    vhdx_header *buffer;
+   
+    
+    printf("%s:%d\n",__FILE__,__LINE__);
+    header1 = g_malloc(sizeof(vhdx_header));
+    header2 = g_malloc(sizeof(vhdx_header));
+
+    buffer = g_malloc(sizeof(vhdx_header_padded));
+    s->headers[0] = header1;
+    s->headers[1] = header2;
+
+    printf("header1 ptr = %016" PRIxPTR "\n", (uintptr_t) header1);
+    ret = bdrv_pread(bs->file, VHDX_HEADER1_OFFSET, buffer, sizeof(vhdx_header_padded));
+    if (ret < 0) {
+    printf("%s:%d error: %s\n",__FILE__,__LINE__,strerror(-ret));
+        goto fail;
+    }
+    vhdx_unpack_header(header1, (vhdx_header_padded *) buffer);
+    vhdx_validate_checksum(buffer, sizeof(vhdx_header_padded), checksum_orig,
+                           is_valid);
+    if (is_valid) {
+        h1_seq = header1->sequence_number;
+    }
+
+    ret = bdrv_pread(bs->file, VHDX_HEADER2_OFFSET, buffer, sizeof(vhdx_header_padded));
+    if (ret < 0) {
+    printf("%s:%d error: %s\n",__FILE__,__LINE__,strerror(-ret));
+        goto fail;
+    }
+    vhdx_unpack_header(header1, (vhdx_header_padded *) buffer);
+    vhdx_validate_checksum(buffer, sizeof(vhdx_header_padded), checksum_orig,
+                           is_valid);
+    if (is_valid) {
+        h2_seq = header2->sequence_number;
+    }
+
+    if (h1_seq > h2_seq) {
+        s->curr_header = 0;
+    } else if (h2_seq < h1_seq) {
+        s->curr_header = 1;
+    } else {
+        ret = -1;
+    }
+    printf("current header is %d\n",s->curr_header);
+    goto exit;
+
+fail:
+    printf("%s:%d\n",__FILE__,__LINE__);
+    g_free(header1);
+    printf("%s:%d\n",__FILE__,__LINE__);
+    g_free(header2);
+    printf("%s:%d\n",__FILE__,__LINE__);
+    s->headers[0] = NULL;
+    s->headers[1] = NULL;
+exit:
+    g_free(buffer);
+    return ret;
+}
+
+
 static int vhdx_open(BlockDriverState *bs, int flags)
 {
-//    BDRVVHDXState *s = bs->opaque;
+    BDRVVHDXState *s = bs->opaque;
     int ret = 0;
 
+    vhdx_open_header(bs, s);
 
     /* TODO */
 
@@ -303,6 +429,7 @@ static int vhdx_read(BlockDriverState *bs, int64_t sector_num,
 //    BDRVVHDXState *s = bs->opaque;
     int ret = 0;
 
+    printf("%s:%d\n",__FILE__,__LINE__);
     /* TODO */
 
     return ret;
@@ -317,6 +444,7 @@ static coroutine_fn int vhdx_co_read(BlockDriverState *bs, int64_t sector_num,
     ret = vhdx_read(bs, sector_num, buf, nb_sectors);
     qemu_co_mutex_unlock(&s->lock);
 
+    printf("%s:%d\n",__FILE__,__LINE__);
     /* TODO */
 
     return ret;
@@ -357,10 +485,14 @@ static int vhdx_create(const char *filename, QEMUOptionParameter *options)
 
 static void vhdx_close(BlockDriverState *bs)
 {
+    BDRVVHDXState *s = bs->opaque;
 
     /* TODO */
 
-    //BDRVVHDXState *s = bs->opaque;
+    printf("%s:%d\n",__FILE__,__LINE__);
+    g_free(s->headers[0]);
+    printf("%s:%d\n",__FILE__,__LINE__);
+    g_free(s->headers[1]);
 }
 
 static QEMUOptionParameter vhdx_create_options[] = {
