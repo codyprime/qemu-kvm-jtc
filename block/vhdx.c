@@ -33,8 +33,9 @@
  *
  * _____________________________________________________________________________
  * | File Id. |   Header 1    | Header 2   | Region Table |  Reserverd (768KB) |
+ * |----------|---------------|------------|--------------|--------------------|
+ * |          |               |            |              |                    |
  * 0.........64KB...........128KB........192KB..........256KB................1MB
- * -----------------------------------------------------------------------------
  */
 
 #define VHDX_HEADER_BLOCK_SIZE      (64*1024)
@@ -46,6 +47,13 @@
 
 
 /* ---- HEADER SECTION STRUCTURES ---- */
+
+/* Important note: these structures are as defined in the VHDX specification,
+ * including byte order and size.  However, without being packed structures,
+ * they will not match 1:1 data read from disk.  Rather than use potentially
+ * non-portable packed structures, data is copied from read buffers into
+ * the structures below.  However, for reference, please refrain from
+ * modifying these structures to something that does not represent the spec */
 
 typedef struct vhdx_file_identifier {
     uint64_t    signature;              /* "vhdxfile" in ASCII */
@@ -278,22 +286,32 @@ typedef struct BDRVVHDXState {
 
 } BDRVVHDXState;
 
-#define vhdx_validate_checksum(block, size, old, valid)                    \
-                (old) = (block)->checksum;                                 \
-                printf("read checksum: %08" PRIx32 "\n",(old));            \
-                (block)->checksum = 0;                                     \
-                (valid) = (old) == vhdx_checksum((uint8_t *)(block), (size)) ? 1 : 0; \
-                (block)->checksum = (old);
-                
-
 /* CRC-32C, Castagnoli polynomial, code 0x11EDC6F41 */
-static uint32_t vhdx_checksum(uint8_t* buf, size_t size)
+static uint32_t vhdx_checksum(uint8_t *buf, size_t size)
 {
     uint32_t chksum;
-    printf("computing checksum for length %zu\n", size);
-    chksum =  crc32c(0, buf, size);
-    printf("vhdx_checksum: %08" PRIx32 "\n", chksum);
+    chksum =  crc32c(0xffffffff, buf, size);
+
     return chksum;
+}
+
+static int vhdx_validate_checksum(uint8_t *buf, size_t size, int crc_offset)
+{
+    uint32_t crc_orig;
+    uint32_t crc;
+
+    assert(buf != NULL);
+    assert(size > (crc_offset+4));
+
+    memcpy(&crc_orig, buf+crc_offset, sizeof(crc_orig));
+    memset(buf+crc_offset, 0, sizeof(crc_orig));
+
+    crc = vhdx_checksum(buf, size);
+
+    memcpy(buf+crc_offset, &crc_orig, sizeof(crc_orig));
+
+    crc_orig = le32_to_cpu(crc_orig);
+    return crc == crc_orig ? 0 : 1;
 }
 
 /*
@@ -315,86 +333,117 @@ static int vhdx_probe(const uint8_t *buf, int buf_size, const char *filename)
     return 0;
 }
 
-static void vhdx_unpack_header(vhdx_header *hdr, vhdx_header_padded *hdr_pad)
+static void vhdx_print_header(vhdx_header *h)
 {
-    hdr->signature = hdr_pad->header.signature;
-    hdr->checksum = hdr_pad->header.checksum;
-    hdr->sequence_number = hdr_pad->header.sequence_number;
-    hdr->log_version = hdr_pad->header.log_version;
-    hdr->version = hdr_pad->header.version;
-    hdr->log_length = hdr_pad->header.log_length;
-    hdr->log_offset = hdr_pad->header.log_offset;
+    /*
+    int i;
 
-    memcpy(hdr->file_write_guid, hdr_pad->header.file_write_guid,
-           sizeof(hdr->file_write_guid));
-    memcpy(hdr->data_write_guid, hdr_pad->header.data_write_guid,
-           sizeof(hdr->data_write_guid));
-    memcpy(hdr->log_guid,  hdr_pad->header.log_guid, sizeof(hdr->log_guid));
-
+    printf("\n===== VHDX Header ==================================================\n");
+    printf("signature: 0x%" PRIx32 "\n", h->signature);
+    printf("checksum: 0x%" PRIx32 "\n", h->checksum);
+    printf("sequence_number: 0x%" PRIx64 "\n", h->sequence_number);
+    printf("file_write_guid: 0x");
+    for (i=0; i<16; i++) {
+        printf("%" PRIx8, h->file_write_guid[i]);
+    }
+    printf("\ndata_write_guid: 0x");
+    for (i=0; i<16; i++) {
+        printf("%" PRIx8, h->data_write_guid[i]);
+    }
+    printf("\nlog_guid: 0x");
+    for (i=0; i<16; i++) {
+        printf("%" PRIx8, h->log_guid[i]);
+    }
+    printf("\nlog_version: 0x%" PRIx16 "\n", h->log_version);
+    printf("version: 0x%" PRIx16 "\n", h->version);
+    printf("log_length: 0x%" PRIx32 "\n", h->log_length);
+    printf("log_offset: 0x%" PRIx64 "\n", h->log_offset);
+    printf("==========================================================================\n\n");
+    */
 }
+
+#define hdr_copy(item, buf, size, offset) \
+    memcpy((item), (buf)+(offset), (size));    \
+    (offset) += (size);
+
+static void vhdx_fill_header(vhdx_header *h, uint8_t *buffer)
+{
+    int offset=0;
+    assert(h != NULL);
+    assert(buffer != NULL);
+
+    /* use memcpy to avoid unaligned data read */
+    hdr_copy(&h->signature,       buffer,  sizeof(h->signature),       offset);
+    hdr_copy(&h->checksum,        buffer,  sizeof(h->checksum),        offset);
+    hdr_copy(&h->sequence_number, buffer,  sizeof(h->sequence_number), offset);
+    hdr_copy(&h->file_write_guid, buffer,  sizeof(h->file_write_guid), offset);
+    hdr_copy(&h->data_write_guid, buffer,  sizeof(h->data_write_guid), offset);
+    hdr_copy(&h->log_guid,        buffer,  sizeof(h->log_guid),        offset);
+    hdr_copy(&h->log_version,     buffer,  sizeof(h->log_version),     offset);
+    hdr_copy(&h->version,         buffer,  sizeof(h->version),         offset);
+    hdr_copy(&h->log_length,      buffer,  sizeof(h->log_length),      offset);
+    hdr_copy(&h->log_offset,      buffer,  sizeof(h->log_offset),      offset);
+}
+
 
 /* opens the specified header block from the VHDX file header section */
 static int vhdx_open_header(BlockDriverState *bs, BDRVVHDXState *s)
 {
     int ret = 0;
-    uint32_t checksum_orig;
-    int is_valid;
     vhdx_header *header1;
     vhdx_header *header2;
     uint64_t h1_seq = 0;
     uint64_t h2_seq = 0;
-    vhdx_header *buffer;
-   
+    uint8_t *buffer;
     
-    printf("%s:%d\n",__FILE__,__LINE__);
     header1 = g_malloc(sizeof(vhdx_header));
     header2 = g_malloc(sizeof(vhdx_header));
 
-    buffer = g_malloc(sizeof(vhdx_header_padded));
+    buffer = g_malloc(VHDX_HEADER_SIZE);
+
     s->headers[0] = header1;
     s->headers[1] = header2;
 
-    printf("header1 ptr = %016" PRIxPTR "\n", (uintptr_t) header1);
-    ret = bdrv_pread(bs->file, VHDX_HEADER1_OFFSET, buffer, sizeof(vhdx_header_padded));
+    ret = bdrv_pread(bs->file, VHDX_HEADER1_OFFSET, buffer, VHDX_HEADER_SIZE);
     if (ret < 0) {
-    printf("%s:%d error: %s\n",__FILE__,__LINE__,strerror(-ret));
         goto fail;
     }
-    vhdx_unpack_header(header1, (vhdx_header_padded *) buffer);
-    vhdx_validate_checksum(buffer, sizeof(vhdx_header_padded), checksum_orig,
-                           is_valid);
-    if (is_valid) {
+    vhdx_fill_header(header1, buffer);
+
+    vhdx_print_header(header1);
+
+    if (vhdx_validate_checksum(buffer, VHDX_HEADER_SIZE, 4) == 0) {
+        printf("header1 is valid!\n");
         h1_seq = header1->sequence_number;
     }
 
-    ret = bdrv_pread(bs->file, VHDX_HEADER2_OFFSET, buffer, sizeof(vhdx_header_padded));
+    ret = bdrv_pread(bs->file, VHDX_HEADER2_OFFSET, buffer, VHDX_HEADER_SIZE);
     if (ret < 0) {
-    printf("%s:%d error: %s\n",__FILE__,__LINE__,strerror(-ret));
         goto fail;
     }
-    vhdx_unpack_header(header1, (vhdx_header_padded *) buffer);
-    vhdx_validate_checksum(buffer, sizeof(vhdx_header_padded), checksum_orig,
-                           is_valid);
-    if (is_valid) {
+    vhdx_fill_header(header2, buffer);
+
+    vhdx_print_header(header2);
+
+    if (vhdx_validate_checksum(buffer, VHDX_HEADER_SIZE, 4) == 0) {
+        printf("header2 is valid!\n");
         h2_seq = header2->sequence_number;
     }
 
     if (h1_seq > h2_seq) {
         s->curr_header = 0;
-    } else if (h2_seq < h1_seq) {
+    } else if (h2_seq > h1_seq) {
         s->curr_header = 1;
     } else {
+        printf("NO VALID HEADER\n");
         ret = -1;
     }
     printf("current header is %d\n",s->curr_header);
     goto exit;
 
 fail:
-    printf("%s:%d\n",__FILE__,__LINE__);
     g_free(header1);
-    printf("%s:%d\n",__FILE__,__LINE__);
     g_free(header2);
-    printf("%s:%d\n",__FILE__,__LINE__);
     s->headers[0] = NULL;
     s->headers[1] = NULL;
 exit:
@@ -489,9 +538,7 @@ static void vhdx_close(BlockDriverState *bs)
 
     /* TODO */
 
-    printf("%s:%d\n",__FILE__,__LINE__);
     g_free(s->headers[0]);
-    printf("%s:%d\n",__FILE__,__LINE__);
     g_free(s->headers[1]);
 }
 
