@@ -32,7 +32,7 @@
  * each block is 64KB:
  *
  * _____________________________________________________________________________
- * | File Id. |   Header 1    | Header 2   | Region Table |  Reserverd (768KB) |
+ * | File Id. |   Header 1    | Header 2   | Region Table |  Reserved (768KB)  |
  * |----------|---------------|------------|--------------|--------------------|
  * |          |               |            |              |                    |
  * 0.........64KB...........128KB........192KB..........256KB................1MB
@@ -46,6 +46,7 @@
 #define VHDX_REGION_TABLE_OFFSET    (VHDX_HEADER_BLOCK_SIZE*3)
 
 
+
 /* ---- HEADER SECTION STRUCTURES ---- */
 
 /* Important note: these structures are as defined in the VHDX specification,
@@ -55,6 +56,7 @@
  * the structures below.  However, for reference, please refrain from
  * modifying these structures to something that does not represent the spec */
 
+#define VHDX_FILE_ID_MAGIC 0x656C696678646876  /* 'vhdxfile' */
 typedef struct vhdx_file_identifier {
     uint64_t    signature;              /* "vhdxfile" in ASCII */
     uint16_t    creator[256];           /* optional; utf-16 string to identify
@@ -63,11 +65,23 @@ typedef struct vhdx_file_identifier {
 } vhdx_file_identifier;
 
 
+/* the guid is a 16 byte unique ID - the definition for this used by
+ * Microsoft is not just 16 bytes though - it is a structure that is defined,
+ * so we need to follow it here so that endianness does not trip us up */
+
+typedef struct ms_guid {
+    uint32_t    data1;
+    uint16_t    data2;
+    uint16_t    data3;
+    uint8_t     data4[8];
+} ms_guid;
+
 #define VHDX_HEADER_SIZE (4*1024)   /* although the vhdx_header struct in disk
                                        is only 582 bytes, for purposes of crc
                                        the header is the first 4KB of the 64KB
                                        block */
 
+#define VHDX_HDR_MAGIC 0x64616568   /* 'head' */
 typedef struct vhdx_header {
     uint32_t    signature;              /* "head" in ASCII */
     uint32_t    checksum;               /* CRC-32C hash of the whole header */
@@ -75,11 +89,11 @@ typedef struct vhdx_header {
                                            VHDX file has 2 of these headers,
                                            and only the header with the highest
                                            sequence number is valid */
-    uint8_t     file_write_guid[16];    /* 128 bit unique identifier. Must be
+    ms_guid     file_write_guid;       /* 128 bit unique identifier. Must be
                                            updated to new, unique value before
                                            the first modification is made to
                                            file */
-    uint8_t     data_write_guid[16];    /* 128 bit unique identifier. Must be
+    ms_guid     data_write_guid;        /* 128 bit unique identifier. Must be
                                            updated to new, unique value before
                                            the first modification is made to
                                            visible data.   Visbile data is
@@ -93,7 +107,7 @@ typedef struct vhdx_header {
 
                                            This does not need to change if
                                            blocks are re-arranged */
-    uint8_t     log_guid[16];           /* 128 bit unique identifier. If zero,
+    ms_guid     log_guid;               /* 128 bit unique identifier. If zero,
                                            there is no valid log. If non-zero,
                                            log entries with this guid are
                                            valid. */
@@ -115,12 +129,26 @@ typedef struct vhdx_header_padded {
 } vhdx_header_padded;
 
 /* Header for the region table block */
+#define VHDX_RT_MAGIC 0x69676572  /* 'regi ' */
 typedef struct vhdx_region_table_header {
     uint32_t    signature;              /* "regi" in ASCII */
     uint32_t    checksum;               /* CRC-32C hash of the 64KB table */
     uint32_t    entry_count;            /* number of valid entries */
     uint32_t    reserved;
 } vhdx_region_table_header;
+
+
+static const ms_guid bat_guid = { .data1 = 0x2dc27766,
+                                  .data2 = 0xf623,
+                                  .data3 = 0x4200,
+                                  .data4 = { 0x9d, 0x64, 0x11, 0x5e,
+                                             0x9b, 0xfd, 0x4a, 0x08}};
+
+static const ms_guid metadata_guid = { .data1 = 0x8b7ca206,
+                                       .data2 = 0x4790,
+                                       .data3 = 0x4b9a,
+                                       .data4 = { 0xb8, 0xfe, 0x57, 0x5f,
+                                                  0x05, 0x0f, 0x88, 0x6e}};
 
 /* Individual region table entry.  There may be a maximum of 2047 of these
  *
@@ -129,13 +157,18 @@ typedef struct vhdx_region_table_header {
  *  Metadata:                      8B7CA20647904B9AB8FE575F050F886E
  */
 typedef struct vhdx_region_table_entry {
-    uint8_t     guid[16];               /* 128-bit unique identifier */
+    ms_guid     guid;                   /* 128-bit unique identifier */
     uint64_t    file_offset;            /* offset of the object in the file.
                                            Must be multiple of 1MB */
     uint32_t    length;                 /* length, in bytes, of the object */
-    uint32_t    required:1;             /* 1 if this region must be recognized
-                                           in order to load the file */
-    uint32_t    reserved:31;
+    union vhdx_rt_bitfield {
+        struct {
+        uint32_t    required:1;        /* 1 if this region must be recognized
+                                          in order to load the file */
+        uint32_t    reserved:31;
+        } bits;
+        uint32_t data;
+    } bitfield;
 } vhdx_region_table_entry;
 
 
@@ -148,6 +181,7 @@ typedef struct vhdx_region_table_entry {
 
 /* ---- LOG ENTRY STRUCTURES ---- */
 
+#define VHDX_LOGE_MAGIC 0x65676F6C /* 'loge' */
 typedef struct vhdx_log_entry_header {
     uint32_t    signature;              /* "loge" in ASCII */
     uint32_t    checksum;               /* CRC-32C hash of the 64KB table */
@@ -160,7 +194,7 @@ typedef struct vhdx_log_entry_header {
     uint32_t    descriptor_count;       /* number of descriptors in this log
                                            entry, must be >= 0 */
     uint32_t    reserved;
-    uint8_t     log_guid[16];           /* value of the log_guid from
+    ms_guid     log_guid;               /* value of the log_guid from
                                            vhdx_header.  If not found in
                                            vhdx_header, it is invalid */
     uint64_t    flushed_file_offset;    /* see spec for full details - this
@@ -169,7 +203,7 @@ typedef struct vhdx_log_entry_header {
                                            file structures fit into */
 } vhdx_log_entry_header;
 
-
+#define VHDX_ZERO_MGIC 0x6F72657A /* 'zero' */
 typedef struct vhdx_log_zero_descriptor {
     uint32_t    zero_signature;         /* "zero" in ASCII */
     uint32_t    reserver;
@@ -180,7 +214,7 @@ typedef struct vhdx_log_zero_descriptor {
                                            vhdx_log_entry_header */
 } vhdx_log_zero_descriptor;
 
-
+#define VHDX_DATA_MAGIC 0x63736564 /* 'desc' */
 typedef struct vhdx_log_data_descriptor {
     uint32_t    data_signature;         /* "desc" in ASCII */
     uint32_t    trailing_bytes;         /* bytes 4092-4096 of the data sector */
@@ -191,7 +225,7 @@ typedef struct vhdx_log_data_descriptor {
                                            in entry header */
 } vhdx_log_data_descriptor;
 
-
+#define VHDX_DATAS_MAGIC 0x61746164 /* 'data' */
 typedef struct vhdx_log_data_sector {
     uint32_t    data_signature;         /* "data" in ASCII */
     uint32_t    sequence_high;          /* 4 MSB of 8 byte sequence_number */
@@ -203,6 +237,26 @@ typedef struct vhdx_log_data_sector {
 
 
 
+#define PAYLOAD_BLOCK_NOT_PRESENT       0
+#define PAYLOAD_BLOCK_UNDEFINED         1
+#define PAYLOAD_BLOCK_ZERO              2
+#define PAYLOAD_BLOCK_UNMAPPED          5
+#define PAYLOAD_BLOCK_FULL_PRESENT      6
+#define PAYLOAD_BLOCK_PARTIALLY_PRESENT 7
+
+#define SB_BLOCK_NOT_PRESENT    0
+#define SB_BLOCK_PRESENT        6
+
+typedef struct vhdx_bat_entry {
+    union vhdx_bat_bitfield {
+        struct {
+            uint64_t    state:3;           /* state of the block (see above) */
+            uint64_t    reserved:17;
+            uint64_t    file_offset_mb:44; /* offset within file in 1MB units */
+        } bits;
+        uint64_t data;
+    } bitfield;
+} vhdx_bat_entry;
 
 
 
@@ -223,15 +277,31 @@ typedef struct vhdx_metadata_table_entry {
                                            metadata region */
                                         /* note: if length = 0, so is offset */
     uint32_t    length;                 /* length of metadata. <= 1MB. */
-    uint32_t    is_user:1;              /* 1: user metadata, 0: system metadata
-                                           1024 entries max can have this set */
-    uint32_t    is_virtual_disk:1;      /* See spec.  1: virtual disk metadata
-                                                  0: file metadata */
-    uint32_t    is_required:1;          /* 1: parser must understand this
-                                           data */
-    uint32_t    reserved:29;
+    union vhdx_metadata_bitfield {
+        struct {
+            uint32_t    is_user:1;         /* 1: user metadata, 0: system
+                                              metadata 1024 entries max can have
+                                              this set */
+            uint32_t    is_virtual_disk:1; /* See spec.  1: virtual disk
+                                              metadata 0: file metadata */
+            uint32_t    is_required:1;     /* 1: parser must understand this
+                                              data */
+            uint32_t    reserved:29;
+        } bits;
+        uint32_t data;
+    } bitfield;
     uint32_t    reserved2;
 } vhdx_metadata_table_entry;
+
+typedef struct vhdx_file_parameters {
+    uint32_t    block_size;             /* size of each payload block, always
+                                           power of 2, <= 256MB and >= 1MB. */
+    uint32_t    leave_blocks_allocated:1; /* if 1, do not change any blocks to
+                                             be BLOCK_NOT_PRESENT.  For fixed
+                                             sized VHDX files */
+    uint32_t    has_parent:1;           /* Has parent / backing file */
+    uint32_t    reserved:30;
+} vhdx_file_parameters;
 
 typedef struct vhdx_virtual_disk_size {
     uint64_t    virtual_disk_size;      /* Size of the virtual disk, in bytes.
@@ -280,6 +350,14 @@ typedef struct BDRVVHDXState {
 
     int curr_header;
     vhdx_header *headers[2];
+
+    vhdx_region_table_header rt;
+    vhdx_region_table_entry bat_rt;         /* region table for the BAT */
+    vhdx_region_table_entry metadata_rt;    /* region table for the metadata */
+    vhdx_region_table_entry *unknown_rt;
+    unsigned int unknown_rt_size;
+
+
     uint8_t region_table_buf[VHDX_HEADER_BLOCK_SIZE];
 
     /* TODO */
@@ -362,9 +440,24 @@ static void vhdx_print_header(vhdx_header *h)
 #endif
 }
 
-#define hdr_copy(item, buf, size, offset) \
-    memcpy((item), (buf)+(offset), (size));    \
+#define vhdx_nop(x) do { (void)(x); } while (0)
+
+#define _hdr_copy(item, buf, size, offset, to_cpu) \
+    memcpy((item), (buf)+(offset), (size));        \
+    to_cpu((item));                                \
     (offset) += (size);
+
+#define hdr_copy16(item, buf, offset) \
+    _hdr_copy((item), (buf), 2, (offset), (le16_to_cpus))
+
+#define hdr_copy32(item, buf, offset) \
+    _hdr_copy((item), (buf), 4, (offset), (le32_to_cpus))
+
+#define hdr_copy64(item, buf, offset) \
+    _hdr_copy((item), (buf), 8, (offset), (le64_to_cpus))
+
+#define hdr_copy(item, buf, size, offset) \
+    _hdr_copy((item), (buf), (size), (offset), vhdx_nop)
 
 static void vhdx_fill_header(vhdx_header *h, uint8_t *buffer)
 {
@@ -373,16 +466,32 @@ static void vhdx_fill_header(vhdx_header *h, uint8_t *buffer)
     assert(buffer != NULL);
 
     /* use memcpy to avoid unaligned data read */
-    hdr_copy(&h->signature,       buffer,  sizeof(h->signature),       offset);
-    hdr_copy(&h->checksum,        buffer,  sizeof(h->checksum),        offset);
-    hdr_copy(&h->sequence_number, buffer,  sizeof(h->sequence_number), offset);
-    hdr_copy(&h->file_write_guid, buffer,  sizeof(h->file_write_guid), offset);
-    hdr_copy(&h->data_write_guid, buffer,  sizeof(h->data_write_guid), offset);
-    hdr_copy(&h->log_guid,        buffer,  sizeof(h->log_guid),        offset);
-    hdr_copy(&h->log_version,     buffer,  sizeof(h->log_version),     offset);
-    hdr_copy(&h->version,         buffer,  sizeof(h->version),         offset);
-    hdr_copy(&h->log_length,      buffer,  sizeof(h->log_length),      offset);
-    hdr_copy(&h->log_offset,      buffer,  sizeof(h->log_offset),      offset);
+    hdr_copy32(&h->signature,       buffer, offset);
+    hdr_copy32(&h->checksum,        buffer, offset);
+    hdr_copy64(&h->sequence_number, buffer, offset);
+
+    hdr_copy32(&h->file_write_guid.data1,   buffer, offset);
+    hdr_copy16(&h->file_write_guid.data2,   buffer, offset);
+    hdr_copy16(&h->file_write_guid.data3,   buffer, offset);
+    hdr_copy(&h->file_write_guid.data4, buffer,
+             sizeof(h->file_write_guid.data4), offset);
+
+    hdr_copy32(&h->data_write_guid.data1,   buffer, offset);
+    hdr_copy16(&h->data_write_guid.data2,   buffer, offset);
+    hdr_copy16(&h->data_write_guid.data3,   buffer, offset);
+    hdr_copy(&h->data_write_guid.data4, buffer,
+             sizeof(h->data_write_guid.data4), offset);
+
+    hdr_copy32(&h->log_guid.data1,   buffer, offset);
+    hdr_copy16(&h->log_guid.data2,   buffer, offset);
+    hdr_copy16(&h->log_guid.data3,   buffer, offset);
+    hdr_copy(&h->log_guid.data4, buffer,
+             sizeof(h->log_guid.data4), offset);
+
+    hdr_copy16(&h->log_version,     buffer,  offset);
+    hdr_copy16(&h->version,         buffer,  offset);
+    hdr_copy32(&h->log_length,      buffer,  offset);
+    hdr_copy64(&h->log_offset,      buffer,  offset);
 }
 
 
@@ -395,7 +504,7 @@ static int vhdx_open_header(BlockDriverState *bs, BDRVVHDXState *s)
     uint64_t h1_seq = 0;
     uint64_t h2_seq = 0;
     uint8_t *buffer;
-    
+
     header1 = g_malloc(sizeof(vhdx_header));
     header2 = g_malloc(sizeof(vhdx_header));
 
@@ -412,7 +521,8 @@ static int vhdx_open_header(BlockDriverState *bs, BDRVVHDXState *s)
 
     vhdx_print_header(header1);
 
-    if (vhdx_validate_checksum(buffer, VHDX_HEADER_SIZE, 4) == 0) {
+    if (vhdx_validate_checksum(buffer, VHDX_HEADER_SIZE, 4) == 0 &&
+        header1->signature == VHDX_HDR_MAGIC) {
         printf("header1 is valid!\n");
         h1_seq = header1->sequence_number;
     }
@@ -425,7 +535,8 @@ static int vhdx_open_header(BlockDriverState *bs, BDRVVHDXState *s)
 
     vhdx_print_header(header2);
 
-    if (vhdx_validate_checksum(buffer, VHDX_HEADER_SIZE, 4) == 0) {
+    if (vhdx_validate_checksum(buffer, VHDX_HEADER_SIZE, 4) == 0 &&
+        header2->signature == VHDX_HDR_MAGIC) {
         printf("header2 is valid!\n");
         h2_seq = header2->sequence_number;
     }
@@ -451,13 +562,84 @@ exit:
     return ret;
 }
 
+static int vhdx_open_region_tables(BlockDriverState *bs, BDRVVHDXState *s)
+{
+    int ret = 0;
+    uint8_t *buffer;
+    int offset = 0;
+    vhdx_region_table_entry rt_entry;
+    int i;
+
+    /* We have to read the whole 64KB block, because the crc32 is over the
+     * whole block */
+    buffer = g_malloc(VHDX_HEADER_BLOCK_SIZE);
+
+    printf("reading region tables...\n");
+    ret = bdrv_pread(bs->file, VHDX_REGION_TABLE_OFFSET, buffer,
+                    VHDX_HEADER_BLOCK_SIZE);
+
+    hdr_copy32(&s->rt.signature,   buffer, offset);
+    hdr_copy32(&s->rt.checksum,    buffer, offset);
+    hdr_copy32(&s->rt.entry_count, buffer, offset);
+    hdr_copy32(&s->rt.reserved,    buffer, offset);
+
+    if (vhdx_validate_checksum(buffer, VHDX_HEADER_BLOCK_SIZE, 4) ||
+        s->rt.signature != VHDX_RT_MAGIC) {
+        ret = -1;
+        printf("region table checksum and/or magic failure\n");
+        goto fail;
+    }
+
+    printf("Found %" PRId32 " region table entries\n", s->rt.entry_count);
+
+
+    for (i = 0; i <s->rt.entry_count; i++) {
+        hdr_copy32(&rt_entry.guid.data1, buffer, offset);
+        hdr_copy16(&rt_entry.guid.data2, buffer, offset);
+        hdr_copy16(&rt_entry.guid.data3, buffer, offset);
+        hdr_copy(&rt_entry.guid.data4, buffer, sizeof(rt_entry.guid.data4),
+                 offset);
+
+        hdr_copy64(&rt_entry.file_offset,   buffer, offset);
+        hdr_copy32(&rt_entry.length,        buffer, offset);
+        hdr_copy32(&rt_entry.bitfield.data, buffer, offset);
+
+        /* see if we recognize the entry */
+        if (memcmp(&rt_entry.guid, &bat_guid, sizeof(ms_guid)) == 0) {
+            s->bat_rt = rt_entry;
+            printf("found BAT region table\n");
+            continue;
+        }
+
+        if (memcmp(&rt_entry.guid, &metadata_guid, sizeof(ms_guid)) == 0) {
+            s->metadata_rt = rt_entry;
+            printf("found Metadata region table\n");
+            continue;
+        }
+
+        if (rt_entry.bitfield.bits.required) {
+            /* cannot read vhdx file - required region table entry that
+             * we do not understand.  per spec, we must fail to open */
+            printf("Found unknown region table entry that is REQUIRED!\n");
+            ret = -1;
+            goto fail;
+        }
+    }
+
+fail:
+    g_free(buffer);
+    return ret;
+}
+
 
 static int vhdx_open(BlockDriverState *bs, int flags)
 {
     BDRVVHDXState *s = bs->opaque;
     int ret = 0;
 
+
     vhdx_open_header(bs, s);
+    vhdx_open_region_tables(bs, s);
 
     /* TODO */
 
