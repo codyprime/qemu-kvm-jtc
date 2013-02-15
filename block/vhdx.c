@@ -263,6 +263,7 @@ typedef struct vhdx_bat_entry {
 
 /* ---- METADATA REGION STRUCTURES ---- */
 
+#define VHDX_METADATA_MAGIC 0x617461646174656D /* 'metadata' */
 typedef struct vhdx_metadata_table_header {
     uint64_t    signature;              /* "metadata" in ASCII */
     uint16_t    reserved;
@@ -296,11 +297,17 @@ typedef struct vhdx_metadata_table_entry {
 typedef struct vhdx_file_parameters {
     uint32_t    block_size;             /* size of each payload block, always
                                            power of 2, <= 256MB and >= 1MB. */
-    uint32_t    leave_blocks_allocated:1; /* if 1, do not change any blocks to
-                                             be BLOCK_NOT_PRESENT.  For fixed
-                                             sized VHDX files */
-    uint32_t    has_parent:1;           /* Has parent / backing file */
-    uint32_t    reserved:30;
+    union _bitfield {
+        struct {
+            uint32_t    leave_blocks_allocated:1; /* if 1, do not change any
+                                                     blocks to be
+                                                     BLOCK_NOT_PRESENT.  For
+                                                     fixed sized VHDX files */
+            uint32_t    has_parent:1;            /* Has parent / backing file */
+            uint32_t    reserved:30;
+        } bits;
+        uint64_t data;
+    } bitfield;
 } vhdx_file_parameters;
 
 typedef struct vhdx_virtual_disk_size {
@@ -357,6 +364,10 @@ typedef struct BDRVVHDXState {
     vhdx_region_table_entry *unknown_rt;
     unsigned int unknown_rt_size;
 
+    vhdx_metadata_table_header  metadata_hdr;
+    uint64_t virtual_disk_size;
+    uint32_t logical_sector_size;
+    uint32_t physical_sector_size;
 
     uint8_t region_table_buf[VHDX_HEADER_BLOCK_SIZE];
 
@@ -373,6 +384,12 @@ static uint32_t vhdx_checksum(uint8_t *buf, size_t size)
     return chksum;
 }
 
+/* validates the checksum of a region of table entries, substituting zero
+ * in for the in-place checksum field of the region.
+ * buf: buffer to compute crc32c over,
+ * size: size of the buffer to checksum
+ * crc_offset: offset into buf that contains the existing 4-byte checksum
+ */
 static int vhdx_validate_checksum(uint8_t *buf, size_t size, int crc_offset)
 {
     uint32_t crc_orig;
@@ -442,22 +459,39 @@ static void vhdx_print_header(vhdx_header *h)
 
 #define vhdx_nop(x) do { (void)(x); } while (0)
 
+/* Help macros to copy data from file buffers to header
+ * structures, with proper endianness.  These help avoid
+ * using packed structs */
+
+/* Do not use directly, see macros below */
 #define _hdr_copy(item, buf, size, offset, to_cpu) \
     memcpy((item), (buf)+(offset), (size));        \
     to_cpu((item));                                \
     (offset) += (size);
 
+/* copy 16-bit header field */
 #define hdr_copy16(item, buf, offset) \
     _hdr_copy((item), (buf), 2, (offset), (le16_to_cpus))
 
+/* copy 32-bit header field */
 #define hdr_copy32(item, buf, offset) \
     _hdr_copy((item), (buf), 4, (offset), (le32_to_cpus))
 
+/* copy 64-bit header field */
 #define hdr_copy64(item, buf, offset) \
     _hdr_copy((item), (buf), 8, (offset), (le64_to_cpus))
 
+/* copy variable-length header field, no endian swapping */
 #define hdr_copy(item, buf, size, offset) \
     _hdr_copy((item), (buf), (size), (offset), vhdx_nop)
+
+/* copies a defined msguid field, with correct endianness */
+#define hdr_copy_guid(item, buf, offset)             \
+        hdr_copy32(&(item).data1, (buf), (offset));  \
+        hdr_copy16(&(item).data2, (buf), (offset));  \
+        hdr_copy16(&(item).data3, (buf), (offset));  \
+        hdr_copy(&(item).data4, (buf), sizeof((item).data4), (offset));
+
 
 static void vhdx_fill_header(vhdx_header *h, uint8_t *buffer)
 {
@@ -470,23 +504,9 @@ static void vhdx_fill_header(vhdx_header *h, uint8_t *buffer)
     hdr_copy32(&h->checksum,        buffer, offset);
     hdr_copy64(&h->sequence_number, buffer, offset);
 
-    hdr_copy32(&h->file_write_guid.data1,   buffer, offset);
-    hdr_copy16(&h->file_write_guid.data2,   buffer, offset);
-    hdr_copy16(&h->file_write_guid.data3,   buffer, offset);
-    hdr_copy(&h->file_write_guid.data4, buffer,
-             sizeof(h->file_write_guid.data4), offset);
-
-    hdr_copy32(&h->data_write_guid.data1,   buffer, offset);
-    hdr_copy16(&h->data_write_guid.data2,   buffer, offset);
-    hdr_copy16(&h->data_write_guid.data3,   buffer, offset);
-    hdr_copy(&h->data_write_guid.data4, buffer,
-             sizeof(h->data_write_guid.data4), offset);
-
-    hdr_copy32(&h->log_guid.data1,   buffer, offset);
-    hdr_copy16(&h->log_guid.data2,   buffer, offset);
-    hdr_copy16(&h->log_guid.data3,   buffer, offset);
-    hdr_copy(&h->log_guid.data4, buffer,
-             sizeof(h->log_guid.data4), offset);
+    hdr_copy_guid(h->file_write_guid, buffer, offset);
+    hdr_copy_guid(h->data_write_guid, buffer, offset);
+    hdr_copy_guid(h->log_guid, buffer, offset);
 
     hdr_copy16(&h->log_version,     buffer,  offset);
     hdr_copy16(&h->version,         buffer,  offset);
@@ -594,11 +614,7 @@ static int vhdx_open_region_tables(BlockDriverState *bs, BDRVVHDXState *s)
 
 
     for (i = 0; i <s->rt.entry_count; i++) {
-        hdr_copy32(&rt_entry.guid.data1, buffer, offset);
-        hdr_copy16(&rt_entry.guid.data2, buffer, offset);
-        hdr_copy16(&rt_entry.guid.data3, buffer, offset);
-        hdr_copy(&rt_entry.guid.data4, buffer, sizeof(rt_entry.guid.data4),
-                 offset);
+        hdr_copy_guid(rt_entry.guid, buffer, offset);
 
         hdr_copy64(&rt_entry.file_offset,   buffer, offset);
         hdr_copy32(&rt_entry.length,        buffer, offset);
@@ -632,6 +648,34 @@ fail:
 }
 
 
+static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
+{
+    int ret = 0;
+    uint8_t header[32];
+    int offset = 0;
+    int i = 0;
+
+    ret = bdrv_pread(bs->file, s->metadata_rt.file_offset, &header, 32);
+    hdr_copy64(&s->metadata_hdr.signature,   &header, offset);
+    hdr_copy16(&s->metadata_hdr.reserved,    &header, offset);
+    hdr_copy16(&s->metadata_hdr.entry_count, &header, offset);
+    hdr_copy(&s->metadata_hdr.reserved2, &header,
+             sizeof(s->metadata_hdr.reserved2), offset);
+
+    if (s->metadata_hdr.signature != VHDX_METADATA_MAGIC) {
+        ret = -1;
+        goto fail;
+    }
+
+    for (i = 0; i < s->metadata_hdr.entry_count; i++) {
+
+        /* TODO */
+    }
+
+fail:
+    return ret;
+}
+
 static int vhdx_open(BlockDriverState *bs, int flags)
 {
     BDRVVHDXState *s = bs->opaque;
@@ -640,6 +684,8 @@ static int vhdx_open(BlockDriverState *bs, int flags)
 
     vhdx_open_header(bs, s);
     vhdx_open_region_tables(bs, s);
+    vhdx_parse_metadata(bs, s);
+
 
     /* TODO */
 
