@@ -76,6 +76,9 @@ typedef struct ms_guid {
     uint8_t     data4[8];
 } ms_guid;
 
+#define guid_cmp(a, b) \
+    (memcmp(&(a), &(b), sizeof(ms_guid)) == 0)
+
 #define VHDX_HEADER_SIZE (4*1024)   /* although the vhdx_header struct in disk
                                        is only 582 bytes, for purposes of crc
                                        the header is the first 4KB of the 64KB
@@ -263,6 +266,10 @@ typedef struct vhdx_bat_entry {
 
 /* ---- METADATA REGION STRUCTURES ---- */
 
+#define VHDX_METADATA_ENTRY_SIZE 32
+#define VHDX_METADATA_MAX_ENTRIES 2047  /* not including the header */
+#define VHDX_METADATA_TABLE_MAX_SIZE \
+    (VHDX_METADATA_ENTRY_SIZE * (VHDX_METADATA_MAX_ENTRIES+1))
 #define VHDX_METADATA_MAGIC 0x617461646174656D /* 'metadata' */
 typedef struct vhdx_metadata_table_header {
     uint64_t    signature;              /* "metadata" in ASCII */
@@ -271,8 +278,45 @@ typedef struct vhdx_metadata_table_header {
     uint32_t    reserved2[5];
 } vhdx_metadata_table_header;
 
+
+
+static const ms_guid file_param_guid = { .data1 = 0xcaa16737,
+                                         .data2 = 0xfa36,
+                                         .data3 = 0x4d43,
+                                         .data4 = { 0xb3, 0xb6, 0x33, 0xf0,
+                                                    0xaa, 0x44, 0xe7, 0x6b}};
+
+static const ms_guid virtual_size_guid = { .data1 = 0x2FA54224,
+                                           .data2 = 0xcd1b,
+                                           .data3 = 0x4876,
+                                           .data4 = { 0xb2, 0x11, 0x5d, 0xbe,
+                                                      0xd8, 0x3b, 0xf4, 0xb8}};
+
+static const ms_guid page83_guid = { .data1 = 0xbeca12ab,
+                                     .data2 = 0xb2e6,
+                                     .data3 = 0x4523,
+                                     .data4 = { 0x93, 0xef, 0xc3, 0x09,
+                                                0xe0, 0x00, 0xc7, 0x46}};
+
+static const ms_guid logical_sector_guid = {.data1 = 0x8141bf1d,
+                                            .data2 = 0xa96f,
+                                            .data3 = 0x4709,
+                                            .data4 = { 0xba, 0x47, 0xf2, 0x33,
+                                                       0xa8, 0xfa, 0xab, 0x5f}};
+
+static const ms_guid phys_sector_guid = { .data1 = 0xcda348c7,
+                                          .data2 = 0x445d,
+                                          .data3 = 0x4471,
+                                          .data4 = { 0x9c, 0xc9, 0xe9, 0x88,
+                                                     0x52, 0x51, 0xc5, 0x56}};
+
+static const ms_guid parent_locator_guid = {.data1 = 0xa8d35f2d,
+                                            .data2 = 0xb30b,
+                                            .data3 = 0x454d,
+                                            .data4 = { 0xab, 0xf7, 0xd3, 0xd8,
+                                                       0x48, 0x34, 0xab, 0x0c}};
 typedef struct vhdx_metadata_table_entry {
-    uint8_t     item_id[16];            /* 128-bit identifier for metadata */
+    ms_guid     item_id;                /* 128-bit identifier for metadata */
     uint32_t    offset;                 /* byte offset of the metadata.  At
                                            least 64kB.  Relative to start of
                                            metadata region */
@@ -365,6 +409,14 @@ typedef struct BDRVVHDXState {
     unsigned int unknown_rt_size;
 
     vhdx_metadata_table_header  metadata_hdr;
+
+    vhdx_metadata_table_entry file_parameters_entry;
+    vhdx_metadata_table_entry virtual_disk_size_entry;
+    vhdx_metadata_table_entry page83_data_entry;
+    vhdx_metadata_table_entry logical_sector_size_entry;
+    vhdx_metadata_table_entry phys_sector_size_entry;
+    vhdx_metadata_table_entry parent_locator_entry;
+
     uint64_t virtual_disk_size;
     uint32_t logical_sector_size;
     uint32_t physical_sector_size;
@@ -597,6 +649,9 @@ static int vhdx_open_region_tables(BlockDriverState *bs, BDRVVHDXState *s)
     printf("reading region tables...\n");
     ret = bdrv_pread(bs->file, VHDX_REGION_TABLE_OFFSET, buffer,
                     VHDX_HEADER_BLOCK_SIZE);
+    if (ret < 0) {
+        goto fail;
+    }
 
     hdr_copy32(&s->rt.signature,   buffer, offset);
     hdr_copy32(&s->rt.checksum,    buffer, offset);
@@ -621,13 +676,13 @@ static int vhdx_open_region_tables(BlockDriverState *bs, BDRVVHDXState *s)
         hdr_copy32(&rt_entry.bitfield.data, buffer, offset);
 
         /* see if we recognize the entry */
-        if (memcmp(&rt_entry.guid, &bat_guid, sizeof(ms_guid)) == 0) {
+        if (guid_cmp(rt_entry.guid, bat_guid)) {
             s->bat_rt = rt_entry;
             printf("found BAT region table\n");
             continue;
         }
 
-        if (memcmp(&rt_entry.guid, &metadata_guid, sizeof(ms_guid)) == 0) {
+        if (guid_cmp(rt_entry.guid, metadata_guid)) {
             s->metadata_rt = rt_entry;
             printf("found Metadata region table\n");
             continue;
@@ -651,28 +706,91 @@ fail:
 static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
 {
     int ret = 0;
-    uint8_t header[32];
+    uint8_t *buffer;
     int offset = 0;
     int i = 0;
+    vhdx_metadata_table_entry md_entry;
 
-    ret = bdrv_pread(bs->file, s->metadata_rt.file_offset, &header, 32);
-    hdr_copy64(&s->metadata_hdr.signature,   &header, offset);
-    hdr_copy16(&s->metadata_hdr.reserved,    &header, offset);
-    hdr_copy16(&s->metadata_hdr.entry_count, &header, offset);
-    hdr_copy(&s->metadata_hdr.reserved2, &header,
+    buffer = g_malloc(VHDX_METADATA_TABLE_MAX_SIZE);
+
+    printf("reading metadata at offset 0x%" PRIx64 "\n",s->metadata_rt.file_offset);
+    ret = bdrv_pread(bs->file, s->metadata_rt.file_offset, buffer,
+                     VHDX_METADATA_TABLE_MAX_SIZE);
+    if (ret < 0) {
+        goto fail_no_free;
+    }
+    hdr_copy64(&s->metadata_hdr.signature,   buffer, offset);
+    hdr_copy16(&s->metadata_hdr.reserved,    buffer, offset);
+    hdr_copy16(&s->metadata_hdr.entry_count, buffer, offset);
+    hdr_copy(&s->metadata_hdr.reserved2, buffer,
              sizeof(s->metadata_hdr.reserved2), offset);
 
     if (s->metadata_hdr.signature != VHDX_METADATA_MAGIC) {
         ret = -1;
-        goto fail;
+        printf("metadata header signature did not match: 0x%" PRIx64 "\n",
+                s->metadata_hdr.signature);
+        goto fail_no_free;
     }
 
-    for (i = 0; i < s->metadata_hdr.entry_count; i++) {
+    printf("metadata section has %" PRId16 " entries\n", s->metadata_hdr.entry_count);
 
-        /* TODO */
+    for (i = 0; i < s->metadata_hdr.entry_count; i++) {
+        hdr_copy_guid(md_entry.item_id,     buffer, offset);
+        hdr_copy32(&md_entry.offset,        buffer, offset);
+        hdr_copy32(&md_entry.length,        buffer, offset);
+        hdr_copy32(&md_entry.bitfield.data, buffer, offset);
+        hdr_copy32(&md_entry.reserved2,     buffer, offset);
+
+        if (guid_cmp(md_entry.item_id, file_param_guid)) {
+            s->file_parameters_entry = md_entry;
+            printf("file parameter metadata entry found!\n");
+            continue;
+        }
+
+        if (guid_cmp(md_entry.item_id, virtual_size_guid)) {
+            s->virtual_disk_size_entry = md_entry;
+            printf("virtual size metadata entry found!\n");
+            continue;
+        }
+
+        if (guid_cmp(md_entry.item_id, page83_guid)) {
+            s->page83_data_entry = md_entry;
+            printf("page 83 metadata entry found!\n");
+            continue;
+        }
+
+        if (guid_cmp(md_entry.item_id, logical_sector_guid)) {
+            s->logical_sector_size_entry = md_entry;
+            printf("logical sector metadata entry found!\n");
+            continue;
+        }
+
+        if (guid_cmp(md_entry.item_id, phys_sector_guid)) {
+            s->phys_sector_size_entry = md_entry;
+            printf("physical sector  metadata entry found!\n");
+            continue;
+        }
+
+        if (guid_cmp(md_entry.item_id, parent_locator_guid)) {
+            s->parent_locator_entry = md_entry;
+            printf("parent locator metadata entry found!\n");
+            continue;
+        }
+
+        if (md_entry.bitfield.bits.is_required) {
+            /* cannot read vhdx file - required region table entry that
+             * we do not understand.  per spec, we must fail to open */
+            printf("Found unknown metadata table entry that is REQUIRED!\n");
+            ret = -1;
+            goto fail;
+        }
+
+
     }
 
 fail:
+    g_free(buffer);
+fail_no_free:
     return ret;
 }
 
@@ -685,7 +803,6 @@ static int vhdx_open(BlockDriverState *bs, int flags)
     vhdx_open_header(bs, s);
     vhdx_open_region_tables(bs, s);
     vhdx_parse_metadata(bs, s);
-
 
     /* TODO */
 
