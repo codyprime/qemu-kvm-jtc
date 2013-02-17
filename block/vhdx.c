@@ -393,7 +393,27 @@ typedef struct vhdx_parent_locator_entry {
 
 /* ----- END VHDX SPECIFICATION STRUCTURES ---- */
 
+#define META_FILE_PARAMETER_PRESENT      0x01
+#define META_VIRTUAL_DISK_SIZE_PRESENT   0x02
+#define META_PAGE_83_PRESENT             0x04
+#define META_LOGICAL_SECTOR_SIZE_PRESENT 0x08
+#define META_PHYS_SECTOR_SIZE_PRESENT    0x10
+#define META_PARENT_LOCATOR_PRESENT      0x20
 
+#define META_ALL_PRESENT    \
+    (META_FILE_PARAMETER_PRESENT | META_VIRTUAL_DISK_SIZE_PRESENT | \
+     META_PAGE_83_PRESENT | META_LOGICAL_SECTOR_SIZE_PRESENT | \
+     META_PHYS_SECTOR_SIZE_PRESENT)
+
+typedef struct vhdx_metadata_entries {
+    vhdx_metadata_table_entry file_parameters_entry;
+    vhdx_metadata_table_entry virtual_disk_size_entry;
+    vhdx_metadata_table_entry page83_data_entry;
+    vhdx_metadata_table_entry logical_sector_size_entry;
+    vhdx_metadata_table_entry phys_sector_size_entry;
+    vhdx_metadata_table_entry parent_locator_entry;
+    uint16_t present;
+} vhdx_metadata_entries;
 
 
 typedef struct BDRVVHDXState {
@@ -409,13 +429,7 @@ typedef struct BDRVVHDXState {
     unsigned int unknown_rt_size;
 
     vhdx_metadata_table_header  metadata_hdr;
-
-    vhdx_metadata_table_entry file_parameters_entry;
-    vhdx_metadata_table_entry virtual_disk_size_entry;
-    vhdx_metadata_table_entry page83_data_entry;
-    vhdx_metadata_table_entry logical_sector_size_entry;
-    vhdx_metadata_table_entry phys_sector_size_entry;
-    vhdx_metadata_table_entry parent_locator_entry;
+    vhdx_metadata_entries metadata_entries;
 
     uint64_t virtual_disk_size;
     uint32_t logical_sector_size;
@@ -734,6 +748,8 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
 
     printf("metadata section has %" PRId16 " entries\n", s->metadata_hdr.entry_count);
 
+    s->metadata_entries.present = 0;
+
     for (i = 0; i < s->metadata_hdr.entry_count; i++) {
         hdr_copy_guid(md_entry.item_id,     buffer, offset);
         hdr_copy32(&md_entry.offset,        buffer, offset);
@@ -742,37 +758,43 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
         hdr_copy32(&md_entry.reserved2,     buffer, offset);
 
         if (guid_cmp(md_entry.item_id, file_param_guid)) {
-            s->file_parameters_entry = md_entry;
+            s->metadata_entries.file_parameters_entry = md_entry;
+            s->metadata_entries.present |= META_FILE_PARAMETER_PRESENT;
             printf("file parameter metadata entry found!\n");
             continue;
         }
 
         if (guid_cmp(md_entry.item_id, virtual_size_guid)) {
-            s->virtual_disk_size_entry = md_entry;
+            s->metadata_entries.virtual_disk_size_entry = md_entry;
+            s->metadata_entries.present |= META_VIRTUAL_DISK_SIZE_PRESENT;
             printf("virtual size metadata entry found!\n");
             continue;
         }
 
         if (guid_cmp(md_entry.item_id, page83_guid)) {
-            s->page83_data_entry = md_entry;
+            s->metadata_entries.page83_data_entry = md_entry;
+            s->metadata_entries.present |= META_PAGE_83_PRESENT;
             printf("page 83 metadata entry found!\n");
             continue;
         }
 
         if (guid_cmp(md_entry.item_id, logical_sector_guid)) {
-            s->logical_sector_size_entry = md_entry;
+            s->metadata_entries.logical_sector_size_entry = md_entry;
+            s->metadata_entries.present |= META_LOGICAL_SECTOR_SIZE_PRESENT;
             printf("logical sector metadata entry found!\n");
             continue;
         }
 
         if (guid_cmp(md_entry.item_id, phys_sector_guid)) {
-            s->phys_sector_size_entry = md_entry;
+            s->metadata_entries.phys_sector_size_entry = md_entry;
+            s->metadata_entries.present |= META_PHYS_SECTOR_SIZE_PRESENT;
             printf("physical sector  metadata entry found!\n");
             continue;
         }
 
         if (guid_cmp(md_entry.item_id, parent_locator_guid)) {
-            s->parent_locator_entry = md_entry;
+            s->metadata_entries.parent_locator_entry = md_entry;
+            s->metadata_entries.present |= META_PARENT_LOCATOR_PRESENT;
             printf("parent locator metadata entry found!\n");
             continue;
         }
@@ -782,13 +804,16 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
              * we do not understand.  per spec, we must fail to open */
             printf("Found unknown metadata table entry that is REQUIRED!\n");
             ret = -1;
-            goto fail;
+            goto exit;
         }
-
-
     }
 
-fail:
+    if (s->metadata_entries.present != META_ALL_PRESENT) {
+        printf("Did not find all required metadata entry fields\n");
+        ret = -1;
+    }
+
+exit:
     g_free(buffer);
 fail_no_free:
     return ret;
