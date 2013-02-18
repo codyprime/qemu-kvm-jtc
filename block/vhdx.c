@@ -27,6 +27,50 @@
 #include "qemu/crc32c.h"
 #include "block/vhdx.h"
 
+#define vhdx_nop(x) do { (void)(x); } while (0)
+
+/* Help macros to copy data from file buffers to header
+ * structures, with proper endianness.  These help avoid
+ * using packed structs */
+
+/* Do not use directly, see macros below */
+#define _hdr_copy(item, buf, size, offset, to_cpu) \
+    memcpy((item), (buf)+(offset), (size));        \
+    to_cpu((item));                                \
+    (offset) += (size);
+
+/* for all of these, buf should be a uint8_t buffer */
+
+/* copy 16-bit header field */
+#define hdr_copy16(item, buf, offset) \
+    _hdr_copy((item), (buf), 2, (offset), (le16_to_cpus))
+
+/* copy 32-bit header field */
+#define hdr_copy32(item, buf, offset) \
+    _hdr_copy((item), (buf), 4, (offset), (le32_to_cpus))
+
+/* copy 64-bit header field */
+#define hdr_copy64(item, buf, offset) \
+    _hdr_copy((item), (buf), 8, (offset), (le64_to_cpus))
+
+/* copy variable-length header field, no endian swapping */
+#define hdr_copy(item, buf, size, offset) \
+    _hdr_copy((item), (buf), (size), (offset), vhdx_nop)
+
+/* copies a defined msguid field, with correct endianness
+ * a msguid entry has 3 data types with endianness sensitivity,
+ * followed by a byte array */
+#define hdr_copy_guid(item, buf, offset)             \
+        hdr_copy32(&(item).data1, (buf), (offset));  \
+        hdr_copy16(&(item).data2, (buf), (offset));  \
+        hdr_copy16(&(item).data3, (buf), (offset));  \
+        hdr_copy(&(item).data4, (buf), sizeof((item).data4), (offset));
+
+
+/* Several metadata and region table data entries are identified by
+ * guids in  a MS-specific GUID format. */
+
+
 /* ------- Known Region Table GUIDs ---------------------- */
 static const ms_guid bat_guid =      { .data1 = 0x2dc27766,
                                        .data2 = 0xf623,
@@ -210,41 +254,6 @@ static void vhdx_print_header(vhdx_header *h)
     printf("==========================================================================\n\n");
 #endif
 }
-
-#define vhdx_nop(x) do { (void)(x); } while (0)
-
-/* Help macros to copy data from file buffers to header
- * structures, with proper endianness.  These help avoid
- * using packed structs */
-
-/* Do not use directly, see macros below */
-#define _hdr_copy(item, buf, size, offset, to_cpu) \
-    memcpy((item), (buf)+(offset), (size));        \
-    to_cpu((item));                                \
-    (offset) += (size);
-
-/* copy 16-bit header field */
-#define hdr_copy16(item, buf, offset) \
-    _hdr_copy((item), (buf), 2, (offset), (le16_to_cpus))
-
-/* copy 32-bit header field */
-#define hdr_copy32(item, buf, offset) \
-    _hdr_copy((item), (buf), 4, (offset), (le32_to_cpus))
-
-/* copy 64-bit header field */
-#define hdr_copy64(item, buf, offset) \
-    _hdr_copy((item), (buf), 8, (offset), (le64_to_cpus))
-
-/* copy variable-length header field, no endian swapping */
-#define hdr_copy(item, buf, size, offset) \
-    _hdr_copy((item), (buf), (size), (offset), vhdx_nop)
-
-/* copies a defined msguid field, with correct endianness */
-#define hdr_copy_guid(item, buf, offset)             \
-        hdr_copy32(&(item).data1, (buf), (offset));  \
-        hdr_copy16(&(item).data2, (buf), (offset));  \
-        hdr_copy16(&(item).data3, (buf), (offset));  \
-        hdr_copy(&(item).data4, (buf), sizeof((item).data4), (offset));
 
 
 static void vhdx_fill_header(vhdx_header *h, uint8_t *buffer)
