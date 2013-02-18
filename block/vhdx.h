@@ -294,7 +294,7 @@ typedef struct vhdx_file_parameters {
             uint32_t    has_parent:1;            /* Has parent / backing file */
             uint32_t    reserved:30;
         } bits;
-        uint64_t data;
+        uint32_t data;
     } bitfield;
 } vhdx_file_parameters;
 
