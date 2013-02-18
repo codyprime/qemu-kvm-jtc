@@ -238,7 +238,9 @@ typedef struct vhdx_log_data_sector {
 #define VHDX_MAX_SECTORS_PER_BLOCK  (1<<23)
 #define VHDX_BAT_ENTRY_SIZE (8) /* 8-bytes, 64-bit */
 
-typedef struct vhdx_bat_entry {
+/* This is a packed struct that generally should not have alignment issues,
+ * as it is just uint64_t at heart */
+typedef struct QEMU_PACKED vhdx_bat_entry {
     union vhdx_bat_bitfield {
         struct {
             uint64_t    state:3;           /* state of the block (see above) */

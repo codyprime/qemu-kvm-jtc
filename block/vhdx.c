@@ -164,12 +164,17 @@ typedef struct BDRVVHDXState {
     vhdx_metadata_entries metadata_entries;
 
     vhdx_file_parameters params;
+    uint32_t block_size_bits;
+    uint32_t sectors_per_block;
+    uint32_t sectors_per_block_bits;
 
     uint64_t virtual_disk_size;
     uint32_t logical_sector_size;
     uint32_t physical_sector_size;
 
     uint64_t chunk_ratio;
+    uint32_t chunk_ratio_bits;
+    uint32_t logical_sector_size_bits;
 
     uint32_t bat_entries;
     vhdx_bat_entry *bat;
@@ -231,35 +236,6 @@ static int vhdx_probe(const uint8_t *buf, int buf_size, const char *filename)
     return 0;
 }
 
-static void vhdx_print_header(vhdx_header *h)
-{
-#if 0
-    int i;
-
-    printf("\n===== VHDX Header ==================================================\n");
-    printf("signature: 0x%" PRIx32 "\n", h->signature);
-    printf("checksum: 0x%" PRIx32 "\n", h->checksum);
-    printf("sequence_number: 0x%" PRIx64 "\n", h->sequence_number);
-    printf("file_write_guid: 0x");
-    for (i=0; i<16; i++) {
-        printf("%" PRIx8, h->file_write_guid[i]);
-    }
-    printf("\ndata_write_guid: 0x");
-    for (i=0; i<16; i++) {
-        printf("%" PRIx8, h->data_write_guid[i]);
-    }
-    printf("\nlog_guid: 0x");
-    for (i=0; i<16; i++) {
-        printf("%" PRIx8, h->log_guid[i]);
-    }
-    printf("\nlog_version: 0x%" PRIx16 "\n", h->log_version);
-    printf("version: 0x%" PRIx16 "\n", h->version);
-    printf("log_length: 0x%" PRIx32 "\n", h->log_length);
-    printf("log_offset: 0x%" PRIx64 "\n", h->log_offset);
-    printf("==========================================================================\n\n");
-#endif
-}
-
 
 static void vhdx_fill_header(vhdx_header *h, uint8_t *buffer)
 {
@@ -307,8 +283,6 @@ static int vhdx_parse_header(BlockDriverState *bs, BDRVVHDXState *s)
     }
     vhdx_fill_header(header1, buffer);
 
-    vhdx_print_header(header1);
-
     if (vhdx_validate_checksum(buffer, VHDX_HEADER_SIZE, 4) == 0 &&
         header1->signature == VHDX_HDR_MAGIC) {
         printf("header1 is valid!\n");
@@ -320,8 +294,6 @@ static int vhdx_parse_header(BlockDriverState *bs, BDRVVHDXState *s)
         goto fail;
     }
     vhdx_fill_header(header2, buffer);
-
-    vhdx_print_header(header2);
 
     if (vhdx_validate_checksum(buffer, VHDX_HEADER_SIZE, 4) == 0 &&
         header2->signature == VHDX_HDR_MAGIC) {
@@ -337,6 +309,9 @@ static int vhdx_parse_header(BlockDriverState *bs, BDRVVHDXState *s)
         printf("NO VALID HEADER\n");
         ret = -1;
     }
+
+    ret = 0;
+
     printf("current header is %d\n",s->curr_header);
     goto exit;
 
@@ -383,7 +358,6 @@ static int vhdx_open_region_tables(BlockDriverState *bs, BDRVVHDXState *s)
 
     printf("Found %" PRId32 " region table entries\n", s->rt.entry_count);
 
-
     for (i = 0; i <s->rt.entry_count; i++) {
         hdr_copy_guid(rt_entry.guid, buffer, offset);
 
@@ -394,13 +368,11 @@ static int vhdx_open_region_tables(BlockDriverState *bs, BDRVVHDXState *s)
         /* see if we recognize the entry */
         if (guid_cmp(rt_entry.guid, bat_guid)) {
             s->bat_rt = rt_entry;
-            printf("found BAT region table\n");
             continue;
         }
 
         if (guid_cmp(rt_entry.guid, metadata_guid)) {
             s->metadata_rt = rt_entry;
-            printf("found Metadata region table\n");
             continue;
         }
 
@@ -412,6 +384,7 @@ static int vhdx_open_region_tables(BlockDriverState *bs, BDRVVHDXState *s)
             goto fail;
         }
     }
+    ret = 0;
 
 fail:
     g_free(buffer);
@@ -425,6 +398,8 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
     uint8_t *buffer;
     int offset = 0;
     int i = 0;
+    uint32_t block_size, sectors_per_block, logical_sector_size;
+    uint64_t chunk_ratio;
     vhdx_metadata_table_entry md_entry;
 
     buffer = g_malloc(VHDX_METADATA_TABLE_MAX_SIZE);
@@ -522,6 +497,7 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
     hdr_copy32(&s->params.block_size,    buffer, offset);
     hdr_copy32(&s->params.bitfield.data, buffer, offset);
 
+
     /* We now have the file parameters, so we can tell if this is a
      * differencing file (i.e.. has_parent), is dynamic or fixed
      * sized (leave_blocks_allocated), and the block size */
@@ -537,6 +513,7 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
                              buffer,
                              s->metadata_entries.parent_locator_entry.length);
 
+            ret = -1; /* temp, until differencing files are supported */
             /* TODO: parse  parent locator fields */
 
         } else {
@@ -568,15 +545,47 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
     le32_to_cpus(&s->logical_sector_size);
     le32_to_cpus(&s->physical_sector_size);
 
+    /* both block_size and sector_size are guaranteed powers of 2 */
+    s->sectors_per_block = s->params.block_size / s->logical_sector_size;
     s->chunk_ratio = (VHDX_MAX_SECTORS_PER_BLOCK) *
                      (uint64_t)s->logical_sector_size /
                      (uint64_t)s->params.block_size;
+
+
+
+    /* These values are ones we will want to division / multiplication
+     * with later on, and they are all guaranteed (per the spec) to be
+     * powers of 2, so we can take advantage of that */
+    logical_sector_size = s->logical_sector_size;
+    while (logical_sector_size >>= 1) {
+        s->logical_sector_size_bits++;
+    }
+    sectors_per_block = s->sectors_per_block;
+    while (sectors_per_block >>= 1) {
+        s->sectors_per_block_bits++;
+    }
+    chunk_ratio = s->chunk_ratio;
+    while (chunk_ratio >>= 1) {
+        s->chunk_ratio_bits++;
+    }
+    block_size = s->params.block_size;
+    while (block_size >>= 1) {
+        s->block_size_bits++;
+    }
+
     printf("chunk ratio is %" PRId64 "\n",s->chunk_ratio);
     printf("block size is %" PRId32 " MB\n", s->params.block_size/(1024*1024));
     printf("virtual disk size is %" PRId64 " MB\n",s->virtual_disk_size/(1024*1024));
     printf("logical sector size is %" PRId32 " bytes\n",s->logical_sector_size);
+    printf("sectors per block is %" PRId32 "\n",s->sectors_per_block);
 
-    /* TODO: can we support disks with logical sector sizes != 512? */
+    if (s->logical_sector_size != BDRV_SECTOR_SIZE) {
+        printf("VHDX error - QEMU only supports 512 byte sector sizes\n");
+        ret = -1;
+        goto exit;
+    }
+
+    ret = 0;
 
 exit:
     g_free(buffer);
@@ -588,25 +597,47 @@ static int vhdx_open(BlockDriverState *bs, int flags)
 {
     BDRVVHDXState *s = bs->opaque;
     int ret = 0;
+    int i;
 
+    s->bat = NULL;
 
-    vhdx_parse_header(bs, s);
-    vhdx_open_region_tables(bs, s);
-    vhdx_parse_metadata(bs, s);
+    ret = vhdx_parse_header(bs, s);
+    if (ret) {
+        goto fail;
+    }
+
+    ret = vhdx_open_region_tables(bs, s);
+    if (ret) {
+        goto fail;
+    }
+
+    ret = vhdx_parse_metadata(bs, s);
+    if (ret) {
+        goto fail;
+    }
 
     /* the VHDX spec dictates that virtual_disk_size is always a multiple of
      * logical_sector_size */
     bs->total_sectors = s->virtual_disk_size / s->logical_sector_size;
 
-    /* since we are not using packed structs, use the calculated number
-     * of entries to allocate memory */
     s->bat_entries = s->bat_rt.length / VHDX_BAT_ENTRY_SIZE;
-    s->bat = g_malloc(s->bat_rt.length * s->bat_entries);
+    s->bat = g_malloc(s->bat_rt.length);
 
-    printf("s->bat_entries = %" PRId32 "\n", s->bat_entries);
+    ret = bdrv_pread(bs->file, s->bat_rt.file_offset, s->bat, s->bat_rt.length);
 
-    /* TODO */
+    /* as it is a uint64_t bitfield, we need to have the right endianness */
+    for (i = 0; i < s->bat_entries; i++) {
+        le64_to_cpus(&s->bat[i].bitfield.data);
+    }
 
+    /* TODO: differencing files, r/w */
+    /* the below is obviously temporary */
+    if (flags & BDRV_O_RDWR) {
+        ret = -1;
+        goto fail;
+    }
+fail:
+    ret = 0;
     return ret;
 }
 
@@ -621,27 +652,79 @@ static int vhdx_reopen_prepare(BDRVReopenState *state,
 static int vhdx_read(BlockDriverState *bs, int64_t sector_num,
                     uint8_t *buf, int nb_sectors)
 {
-//    BDRVVHDXState *s = bs->opaque;
-    int ret = 0;
-
-    printf("%s:%d\n",__FILE__,__LINE__);
-    /* TODO */
-
-    return ret;
-}
-
-static coroutine_fn int vhdx_co_read(BlockDriverState *bs, int64_t sector_num,
-                                    uint8_t *buf, int nb_sectors)
-{
-    int ret;
     BDRVVHDXState *s = bs->opaque;
-    qemu_co_mutex_lock(&s->lock);
-    ret = vhdx_read(bs, sector_num, buf, nb_sectors);
-    qemu_co_mutex_unlock(&s->lock);
+    int ret = 0;
+    uint32_t sectors_avail;
+    uint32_t block_offset;
+    uint64_t offset;
+    uint32_t bat_idx;
+    uint32_t bytes_to_read;
 
-    printf("%s:%d\n",__FILE__,__LINE__);
-    /* TODO */
+    while (nb_sectors > 0) {
+        /* We are a differencing file, so we need to inspect the sector bitmap
+         * to see if we have the data or not */
+        if (s->params.bitfield.bits.has_parent) {
+            /* not supported yet */
+            ret = -1;
+            goto exit;
+        } else {
+            bat_idx = sector_num >> s->sectors_per_block_bits;
+            /* effectively a modulo - this gives us the offset into the block
+             * (in sector sizes) for our sector number */
+            block_offset = sector_num - (bat_idx << s->sectors_per_block_bits);
+            /* the chunk ratio gives us the interleaving of the sector
+             * bitmaps, so we need to advance our page block index by the
+             * sector bitmaps entry number */
+            bat_idx += bat_idx >> s->chunk_ratio_bits;
 
+            /* the number of sectors we can read in this cycle */
+            sectors_avail = s->sectors_per_block - block_offset;
+
+            if (sectors_avail  > nb_sectors) {
+                sectors_avail = nb_sectors;
+            }
+
+            bytes_to_read = sectors_avail << s->logical_sector_size_bits;
+
+            /*
+            printf("bat_idx: %d\n", bat_idx);
+            printf("sectors_avail: %d\n", bat_idx);
+            printf("bytes_to_read: %d\n", bat_idx);
+            */
+            /* check the payload block state */
+            switch (s->bat[bat_idx].bitfield.bits.state) {
+                case PAYLOAD_BLOCK_NOT_PRESENT: /* fall through */
+                case PAYLOAD_BLOCK_UNMAPPED:    /* fall through */
+                case PAYLOAD_BLOCK_ZERO:
+                    /* return zero */
+                    memset(buf, 0, bytes_to_read);
+                    break;
+                case PAYLOAD_BLOCK_UNDEFINED:   /* fall through */
+                case PAYLOAD_BLOCK_FULL_PRESENT:
+                    offset = (block_offset << s->logical_sector_size_bits) +
+                             (s->bat[bat_idx].bitfield.bits.file_offset_mb
+                              * (1024 * 1024));
+                    ret = bdrv_pread(bs->file, offset, buf, bytes_to_read);
+                    if (ret != bytes_to_read) {
+                        ret = -1;
+                        goto exit;
+                    }
+                    break;
+                case PAYLOAD_BLOCK_PARTIALLY_PRESENT:
+                    /* we don't yet support difference files, fall through
+                     * to error */
+                default:
+                    ret = -1;
+                    goto exit;
+                    break;
+            }
+            nb_sectors -= sectors_avail;
+            sector_num += sectors_avail;
+            buf += bytes_to_read;
+        }
+    }
+    ret = 0;
+exit:
     return ret;
 }
 
@@ -713,7 +796,7 @@ static BlockDriver bdrv_vhdx = {
     .bdrv_close             = vhdx_close,
     .bdrv_reopen_prepare    = vhdx_reopen_prepare,
     .bdrv_create            = vhdx_create,
-    .bdrv_read              = vhdx_co_read,
+    .bdrv_read              = vhdx_read,
     .bdrv_write             = vhdx_co_write,
     .create_options         = vhdx_create_options,
 };
