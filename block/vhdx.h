@@ -221,6 +221,9 @@ typedef struct vhdx_log_data_sector {
 
 
 
+/* block states - different state values depending on whether it is a
+ * payload block, or a sector block. */
+
 #define PAYLOAD_BLOCK_NOT_PRESENT       0
 #define PAYLOAD_BLOCK_UNDEFINED         1
 #define PAYLOAD_BLOCK_ZERO              2
@@ -230,6 +233,10 @@ typedef struct vhdx_log_data_sector {
 
 #define SB_BLOCK_NOT_PRESENT    0
 #define SB_BLOCK_PRESENT        6
+
+/* per the spec */
+#define VHDX_MAX_SECTORS_PER_BLOCK  (1<<23)
+#define VHDX_BAT_ENTRY_SIZE (8) /* 8-bytes, 64-bit */
 
 typedef struct vhdx_bat_entry {
     union vhdx_bat_bitfield {

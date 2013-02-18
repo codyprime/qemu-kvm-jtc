@@ -169,7 +169,10 @@ typedef struct BDRVVHDXState {
     uint32_t logical_sector_size;
     uint32_t physical_sector_size;
 
-    uint8_t region_table_buf[VHDX_HEADER_BLOCK_SIZE];
+    uint64_t chunk_ratio;
+
+    uint32_t bat_entries;
+    vhdx_bat_entry *bat;
 
     /* TODO */
 
@@ -507,9 +510,9 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
         goto exit;
     }
 
-    g_free(buffer);
     offset = 0;
-    buffer = g_malloc(s->metadata_entries.file_parameters_entry.length);
+    buffer = g_realloc(buffer,
+                       s->metadata_entries.file_parameters_entry.length);
     ret = bdrv_pread(bs->file,
                      s->metadata_entries.file_parameters_entry.offset
                                          + s->metadata_rt.file_offset,
@@ -526,9 +529,9 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
     /* The parent locator required iff the file parameters has_parent set */
     if (s->params.bitfield.bits.has_parent) {
         if (s->metadata_entries.present & ~META_PARENT_LOCATOR_PRESENT) {
-            g_free(buffer);
             offset = 0;
-            buffer = g_malloc(s->metadata_entries.parent_locator_entry.length);
+            buffer = g_realloc(buffer,
+                               s->metadata_entries.parent_locator_entry.length);
             ret = bdrv_pread(bs->file,
                              s->metadata_entries.parent_locator_entry.offset,
                              buffer,
@@ -565,6 +568,10 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
     le32_to_cpus(&s->logical_sector_size);
     le32_to_cpus(&s->physical_sector_size);
 
+    s->chunk_ratio = (VHDX_MAX_SECTORS_PER_BLOCK) *
+                     (uint64_t)s->logical_sector_size /
+                     (uint64_t)s->params.block_size;
+    printf("chunk ratio is %" PRId64 "\n",s->chunk_ratio);
     printf("block size is %" PRId32 " MB\n", s->params.block_size/(1024*1024));
     printf("virtual disk size is %" PRId64 " MB\n",s->virtual_disk_size/(1024*1024));
     printf("logical sector size is %" PRId32 " bytes\n",s->logical_sector_size);
@@ -590,6 +597,13 @@ static int vhdx_open(BlockDriverState *bs, int flags)
     /* the VHDX spec dictates that virtual_disk_size is always a multiple of
      * logical_sector_size */
     bs->total_sectors = s->virtual_disk_size / s->logical_sector_size;
+
+    /* since we are not using packed structs, use the calculated number
+     * of entries to allocate memory */
+    s->bat_entries = s->bat_rt.length / VHDX_BAT_ENTRY_SIZE;
+    s->bat = g_malloc(s->bat_rt.length * s->bat_entries);
+
+    printf("s->bat_entries = %" PRId32 "\n", s->bat_entries);
 
     /* TODO */
 
@@ -672,6 +686,7 @@ static void vhdx_close(BlockDriverState *bs)
 
     g_free(s->headers[0]);
     g_free(s->headers[1]);
+    g_free(s->bat);
 }
 
 static QEMUOptionParameter vhdx_create_options[] = {
