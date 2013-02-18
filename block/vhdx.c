@@ -163,6 +163,8 @@ typedef struct BDRVVHDXState {
     vhdx_metadata_table_header  metadata_hdr;
     vhdx_metadata_entries metadata_entries;
 
+    vhdx_file_parameters params;
+
     uint64_t virtual_disk_size;
     uint32_t logical_sector_size;
     uint32_t physical_sector_size;
@@ -279,7 +281,7 @@ static void vhdx_fill_header(vhdx_header *h, uint8_t *buffer)
 
 
 /* opens the specified header block from the VHDX file header section */
-static int vhdx_open_header(BlockDriverState *bs, BDRVVHDXState *s)
+static int vhdx_parse_header(BlockDriverState *bs, BDRVVHDXState *s)
 {
     int ret = 0;
     vhdx_header *header1;
@@ -457,42 +459,36 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
         if (guid_cmp(md_entry.item_id, file_param_guid)) {
             s->metadata_entries.file_parameters_entry = md_entry;
             s->metadata_entries.present |= META_FILE_PARAMETER_PRESENT;
-            printf("file parameter metadata entry found!\n");
             continue;
         }
 
         if (guid_cmp(md_entry.item_id, virtual_size_guid)) {
             s->metadata_entries.virtual_disk_size_entry = md_entry;
             s->metadata_entries.present |= META_VIRTUAL_DISK_SIZE_PRESENT;
-            printf("virtual size metadata entry found!\n");
             continue;
         }
 
         if (guid_cmp(md_entry.item_id, page83_guid)) {
             s->metadata_entries.page83_data_entry = md_entry;
             s->metadata_entries.present |= META_PAGE_83_PRESENT;
-            printf("page 83 metadata entry found!\n");
             continue;
         }
 
         if (guid_cmp(md_entry.item_id, logical_sector_guid)) {
             s->metadata_entries.logical_sector_size_entry = md_entry;
             s->metadata_entries.present |= META_LOGICAL_SECTOR_SIZE_PRESENT;
-            printf("logical sector metadata entry found!\n");
             continue;
         }
 
         if (guid_cmp(md_entry.item_id, phys_sector_guid)) {
             s->metadata_entries.phys_sector_size_entry = md_entry;
             s->metadata_entries.present |= META_PHYS_SECTOR_SIZE_PRESENT;
-            printf("physical sector  metadata entry found!\n");
             continue;
         }
 
         if (guid_cmp(md_entry.item_id, parent_locator_guid)) {
             s->metadata_entries.parent_locator_entry = md_entry;
             s->metadata_entries.present |= META_PARENT_LOCATOR_PRESENT;
-            printf("parent locator metadata entry found!\n");
             continue;
         }
 
@@ -508,7 +504,72 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
     if (s->metadata_entries.present != META_ALL_PRESENT) {
         printf("Did not find all required metadata entry fields\n");
         ret = -1;
+        goto exit;
     }
+
+    g_free(buffer);
+    offset = 0;
+    buffer = g_malloc(s->metadata_entries.file_parameters_entry.length);
+    ret = bdrv_pread(bs->file,
+                     s->metadata_entries.file_parameters_entry.offset
+                                         + s->metadata_rt.file_offset,
+                     buffer,
+                     s->metadata_entries.file_parameters_entry.length);
+
+    hdr_copy32(&s->params.block_size,    buffer, offset);
+    hdr_copy32(&s->params.bitfield.data, buffer, offset);
+
+    /* We now have the file parameters, so we can tell if this is a
+     * differencing file (i.e.. has_parent), is dynamic or fixed
+     * sized (leave_blocks_allocated), and the block size */
+
+    /* The parent locator required iff the file parameters has_parent set */
+    if (s->params.bitfield.bits.has_parent) {
+        if (s->metadata_entries.present & ~META_PARENT_LOCATOR_PRESENT) {
+            g_free(buffer);
+            offset = 0;
+            buffer = g_malloc(s->metadata_entries.parent_locator_entry.length);
+            ret = bdrv_pread(bs->file,
+                             s->metadata_entries.parent_locator_entry.offset,
+                             buffer,
+                             s->metadata_entries.parent_locator_entry.length);
+
+            /* TODO: parse  parent locator fields */
+
+        } else {
+            printf("Did not find all required metadata entry fields\n");
+            ret = -1;
+            goto exit;
+        }
+    }
+    /* determine virtual disk size, logical sector size,
+     * and phys sector size */
+
+    ret = bdrv_pread(bs->file,
+                     s->metadata_entries.virtual_disk_size_entry.offset
+                                           + s->metadata_rt.file_offset,
+                     &s->virtual_disk_size,
+                     sizeof(uint64_t));
+    ret = bdrv_pread(bs->file,
+                     s->metadata_entries.logical_sector_size_entry.offset
+                                             + s->metadata_rt.file_offset,
+                     &s->logical_sector_size,
+                     sizeof(uint32_t));
+    ret = bdrv_pread(bs->file,
+                     s->metadata_entries.phys_sector_size_entry.offset
+                                          + s->metadata_rt.file_offset,
+                     &s->physical_sector_size,
+                     sizeof(uint32_t));
+
+    le64_to_cpus(&s->virtual_disk_size);
+    le32_to_cpus(&s->logical_sector_size);
+    le32_to_cpus(&s->physical_sector_size);
+
+    printf("block size is %" PRId32 " MB\n", s->params.block_size/(1024*1024));
+    printf("virtual disk size is %" PRId64 " MB\n",s->virtual_disk_size/(1024*1024));
+    printf("logical sector size is %" PRId32 " bytes\n",s->logical_sector_size);
+
+    /* TODO: can we support disks with logical sector sizes != 512? */
 
 exit:
     g_free(buffer);
@@ -522,9 +583,13 @@ static int vhdx_open(BlockDriverState *bs, int flags)
     int ret = 0;
 
 
-    vhdx_open_header(bs, s);
+    vhdx_parse_header(bs, s);
     vhdx_open_region_tables(bs, s);
     vhdx_parse_metadata(bs, s);
+
+    /* the VHDX spec dictates that virtual_disk_size is always a multiple of
+     * logical_sector_size */
+    bs->total_sectors = s->virtual_disk_size / s->logical_sector_size;
 
     /* TODO */
 
