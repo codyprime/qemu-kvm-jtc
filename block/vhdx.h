@@ -79,7 +79,7 @@ typedef struct ms_guid {
                                        block */
 
 #define VHDX_HDR_MAGIC 0x64616568   /* 'head' */
-typedef struct vhdx_header {
+typedef struct QEMU_PACKED vhdx_header {
     uint32_t    signature;              /* "head" in ASCII */
     uint32_t    checksum;               /* CRC-32C hash of the whole header */
     uint64_t    sequence_number;        /* Seq number of this header.  Each
@@ -119,7 +119,7 @@ typedef struct vhdx_header {
 } vhdx_header;
 
 /* 4KB in packed data size, not to be used except for initial data read */
-typedef struct vhdx_header_padded {
+typedef struct QEMU_PACKED vhdx_header_padded {
     vhdx_header header;
     uint8_t     reserved[502];          /* per the VHDX spec */
     uint8_t     reserved_[3514];        /* for the initial packed struct read */
@@ -127,7 +127,7 @@ typedef struct vhdx_header_padded {
 
 /* Header for the region table block */
 #define VHDX_RT_MAGIC 0x69676572  /* 'regi ' */
-typedef struct vhdx_region_table_header {
+typedef struct QEMU_PACKED vhdx_region_table_header {
     uint32_t    signature;              /* "regi" in ASCII */
     uint32_t    checksum;               /* CRC-32C hash of the 64KB table */
     uint32_t    entry_count;            /* number of valid entries */
@@ -140,7 +140,7 @@ typedef struct vhdx_region_table_header {
  *  BAT (block allocation table):  2DC27766F62342009D64115E9BFD4A08
  *  Metadata:                      8B7CA20647904B9AB8FE575F050F886E
  */
-typedef struct vhdx_region_table_entry {
+typedef struct QEMU_PACKED vhdx_region_table_entry {
     ms_guid     guid;                   /* 128-bit unique identifier */
     uint64_t    file_offset;            /* offset of the object in the file.
                                            Must be multiple of 1MB */
@@ -166,7 +166,7 @@ typedef struct vhdx_region_table_entry {
 /* ---- LOG ENTRY STRUCTURES ---- */
 
 #define VHDX_LOGE_MAGIC 0x65676F6C /* 'loge' */
-typedef struct vhdx_log_entry_header {
+typedef struct QEMU_PACKED vhdx_log_entry_header {
     uint32_t    signature;              /* "loge" in ASCII */
     uint32_t    checksum;               /* CRC-32C hash of the 64KB table */
     uint32_t    entry_length;           /* length in bytes, multiple of 1MB */
@@ -188,7 +188,7 @@ typedef struct vhdx_log_entry_header {
 } vhdx_log_entry_header;
 
 #define VHDX_ZERO_MGIC 0x6F72657A /* 'zero' */
-typedef struct vhdx_log_zero_descriptor {
+typedef struct QEMU_PACKED vhdx_log_zero_descriptor {
     uint32_t    zero_signature;         /* "zero" in ASCII */
     uint32_t    reserver;
     uint64_t    zero_length;            /* length of the section to zero */
@@ -199,7 +199,7 @@ typedef struct vhdx_log_zero_descriptor {
 } vhdx_log_zero_descriptor;
 
 #define VHDX_DATA_MAGIC 0x63736564 /* 'desc' */
-typedef struct vhdx_log_data_descriptor {
+typedef struct QEMU_PACKED vhdx_log_data_descriptor {
     uint32_t    data_signature;         /* "desc" in ASCII */
     uint32_t    trailing_bytes;         /* bytes 4092-4096 of the data sector */
     uint64_t    leading_bytes;          /* bytes 0-7 of the data sector */
@@ -210,7 +210,7 @@ typedef struct vhdx_log_data_descriptor {
 } vhdx_log_data_descriptor;
 
 #define VHDX_DATAS_MAGIC 0x61746164 /* 'data' */
-typedef struct vhdx_log_data_sector {
+typedef struct QEMU_PACKED vhdx_log_data_sector {
     uint32_t    data_signature;         /* "data" in ASCII */
     uint32_t    sequence_high;          /* 4 MSB of 8 byte sequence_number */
     uint8_t     data[4084];             /* raw data, bytes 8-4091 (inclusive).
@@ -261,14 +261,14 @@ typedef struct QEMU_PACKED vhdx_bat_entry {
 #define VHDX_METADATA_TABLE_MAX_SIZE \
     (VHDX_METADATA_ENTRY_SIZE * (VHDX_METADATA_MAX_ENTRIES+1))
 #define VHDX_METADATA_MAGIC 0x617461646174656D /* 'metadata' */
-typedef struct vhdx_metadata_table_header {
+typedef struct QEMU_PACKED vhdx_metadata_table_header {
     uint64_t    signature;              /* "metadata" in ASCII */
     uint16_t    reserved;
     uint16_t    entry_count;            /* number table entries. <= 2047 */
     uint32_t    reserved2[5];
 } vhdx_metadata_table_header;
 
-typedef struct vhdx_metadata_table_entry {
+typedef struct QEMU_PACKED vhdx_metadata_table_entry {
     ms_guid     item_id;                /* 128-bit identifier for metadata */
     uint32_t    offset;                 /* byte offset of the metadata.  At
                                            least 64kB.  Relative to start of
@@ -291,7 +291,7 @@ typedef struct vhdx_metadata_table_entry {
     uint32_t    reserved2;
 } vhdx_metadata_table_entry;
 
-typedef struct vhdx_file_parameters {
+typedef struct QEMU_PACKED vhdx_file_parameters {
     uint32_t    block_size;             /* size of each payload block, always
                                            power of 2, <= 256MB and >= 1MB. */
     union _bitfield {
@@ -307,28 +307,28 @@ typedef struct vhdx_file_parameters {
     } bitfield;
 } vhdx_file_parameters;
 
-typedef struct vhdx_virtual_disk_size {
+typedef struct QEMU_PACKED vhdx_virtual_disk_size {
     uint64_t    virtual_disk_size;      /* Size of the virtual disk, in bytes.
                                            Must be multiple of the sector size,
                                            max of 64TB */
 } vhdx_virtual_disk_size;
 
-typedef struct vhdx_page83_data {
+typedef struct QEMU_PACKED vhdx_page83_data {
     uint8_t     page_83_data[16];       /* unique id for scsi devices that
                                            support page 0x83 */
 } vhdx_page83_data;
 
-typedef struct vhdx_virtual_disk_logical_sector_size {
+typedef struct QEMU_PACKED vhdx_virtual_disk_logical_sector_size {
     uint32_t    logical_sector_size;    /* virtual disk sector size (in bytes).
                                            Can only be 512 or 4096 bytes */
 } vhdx_virtual_disk_logical_sector_size;
 
-typedef struct vhdx_virtual_disk_physical_sector_size {
+typedef struct QEMU_PACKED vhdx_virtual_disk_physical_sector_size {
     uint32_t    physical_sector_size;   /* physical sector size (in bytes).
                                            Can only be 512 or 4096 bytes */
 } vhdx_virtual_disk_physical_sector_size;
 
-typedef struct vhdx_parent_locator_header {
+typedef struct QEMU_PACKED vhdx_parent_locator_header {
     uint8_t     locator_type[16];       /* type of the parent virtual disk. */
     uint16_t    reserved;
     uint16_t    key_value_count;        /* number of key/value pairs for this
@@ -336,7 +336,7 @@ typedef struct vhdx_parent_locator_header {
 } vhdx_parent_locator_header;
 
 /* key and value strings are UNICODE strings, UTF-16 LE encoding, no NULs */
-typedef struct vhdx_parent_locator_entry {
+typedef struct QEMU_PACKED vhdx_parent_locator_entry {
     uint32_t    key_offset;             /* offset in metadata for key, > 0 */
     uint32_t    value_offset;           /* offset in metadata for value, >0 */
     uint16_t    key_length;             /* length of entry key, > 0 */

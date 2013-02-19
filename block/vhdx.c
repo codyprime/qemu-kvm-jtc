@@ -20,53 +20,14 @@
 #include "qemu-common.h"
 #include "block/block_int.h"
 #include "qemu/module.h"
-#include "migration/migration.h"
-#if defined(CONFIG_UUID)
-#include <uuid/uuid.h>
-#endif
 #include "qemu/crc32c.h"
 #include "block/vhdx.h"
 
-#define vhdx_nop(x) do { (void)(x); } while (0)
 
-/* Help macros to copy data from file buffers to header
- * structures, with proper endianness.  These help avoid
- * using packed structs */
-
-/* Do not use directly, see macros below */
-#define _hdr_copy(item, buf, size, offset, to_cpu) do { \
-    memcpy((item), (buf)+(offset), (size));        \
-    to_cpu((item));                                \
-    (offset) += (size); } while (0)
-
-/* for all of these, buf should be a uint8_t buffer */
-
-/* copy 16-bit header field */
-#define hdr_copy16(item, buf, offset) do { \
-    _hdr_copy((item), (buf), 2, (offset), (le16_to_cpus)); } while (0)
-
-/* copy 32-bit header field */
-#define hdr_copy32(item, buf, offset) do { \
-    _hdr_copy((item), (buf), 4, (offset), (le32_to_cpus)); } while (0)
-
-/* copy 64-bit header field */
-#define hdr_copy64(item, buf, offset) do { \
-    _hdr_copy((item), (buf), 8, (offset), (le64_to_cpus)); } while (0)
-
-/* copy variable-length header field, no endian swapping */
-#define hdr_copy(item, buf, size, offset) do { \
-    _hdr_copy((item), (buf), (size), (offset), vhdx_nop); } while (0)
-
-/* copies a defined msguid field, with correct endianness
- * a msguid entry has 3 data types with endianness sensitivity,
- * followed by a byte array */
-#define hdr_copy_guid(item, buf, offset) do {        \
-        hdr_copy32(&(item).data1, (buf), (offset));  \
-        hdr_copy16(&(item).data2, (buf), (offset));  \
-        hdr_copy16(&(item).data3, (buf), (offset));  \
-        hdr_copy(&(item).data4, (buf), sizeof((item).data4), (offset)); \
-        } while (0)
-
+#define leguid_to_cpus(guid) do { \
+    le32_to_cpus(&(guid)->data1); \
+    le16_to_cpus(&(guid)->data2); \
+    le16_to_cpus(&(guid)->data3); } while (0)
 
 /* Several metadata and region table data entries are identified by
  * guids in  a MS-specific GUID format. */
@@ -238,25 +199,20 @@ static int vhdx_probe(const uint8_t *buf, int buf_size, const char *filename)
 }
 
 
-static void vhdx_fill_header(vhdx_header *h, uint8_t *buffer)
+static void vhdx_header_endianness(vhdx_header *h)
 {
-    int offset = 0;
     assert(h != NULL);
-    assert(buffer != NULL);
 
-    /* use memcpy to avoid unaligned data read */
-    hdr_copy32(&h->signature,       buffer, offset);
-    hdr_copy32(&h->checksum,        buffer, offset);
-    hdr_copy64(&h->sequence_number, buffer, offset);
+    le32_to_cpus(&h->signature);
+    le32_to_cpus(&h->checksum);
+    le64_to_cpus(&h->sequence_number);
 
-    hdr_copy_guid(h->file_write_guid, buffer, offset);
-    hdr_copy_guid(h->data_write_guid, buffer, offset);
-    hdr_copy_guid(h->log_guid, buffer, offset);
+    leguid_to_cpus(&h->file_write_guid);
 
-    hdr_copy16(&h->log_version,     buffer,  offset);
-    hdr_copy16(&h->version,         buffer,  offset);
-    hdr_copy32(&h->log_length,      buffer,  offset);
-    hdr_copy64(&h->log_offset,      buffer,  offset);
+    le16_to_cpus(&h->log_version);
+    le16_to_cpus(&h->version);
+    le32_to_cpus(&h->log_length);
+    le64_to_cpus(&h->log_offset);
 }
 
 
@@ -282,7 +238,8 @@ static int vhdx_parse_header(BlockDriverState *bs, BDRVVHDXState *s)
     if (ret < 0) {
         goto fail;
     }
-    vhdx_fill_header(header1, buffer);
+    memcpy(header1, buffer, sizeof(vhdx_header));
+    vhdx_header_endianness(header1);
 
     if (vhdx_validate_checksum(buffer, VHDX_HEADER_SIZE, 4) == 0 &&
         header1->signature == VHDX_HDR_MAGIC) {
@@ -294,7 +251,8 @@ static int vhdx_parse_header(BlockDriverState *bs, BDRVVHDXState *s)
     if (ret < 0) {
         goto fail;
     }
-    vhdx_fill_header(header2, buffer);
+    memcpy(header2, buffer, sizeof(vhdx_header));
+    vhdx_header_endianness(header2);
 
     if (vhdx_validate_checksum(buffer, VHDX_HEADER_SIZE, 4) == 0 &&
         header2->signature == VHDX_HDR_MAGIC) {
@@ -344,11 +302,12 @@ static int vhdx_open_region_tables(BlockDriverState *bs, BDRVVHDXState *s)
     if (ret < 0) {
         goto fail;
     }
-
-    hdr_copy32(&s->rt.signature,   buffer, offset);
-    hdr_copy32(&s->rt.checksum,    buffer, offset);
-    hdr_copy32(&s->rt.entry_count, buffer, offset);
-    hdr_copy32(&s->rt.reserved,    buffer, offset);
+    memcpy(&s->rt, buffer, sizeof(s->rt));
+    le32_to_cpus(&s->rt.signature);
+    le32_to_cpus(&s->rt.checksum);
+    le32_to_cpus(&s->rt.entry_count);
+    le32_to_cpus(&s->rt.reserved);
+    offset += sizeof(s->rt);
 
     if (vhdx_validate_checksum(buffer, VHDX_HEADER_BLOCK_SIZE, 4) ||
         s->rt.signature != VHDX_RT_MAGIC) {
@@ -360,11 +319,13 @@ static int vhdx_open_region_tables(BlockDriverState *bs, BDRVVHDXState *s)
     printf("Found %" PRId32 " region table entries\n", s->rt.entry_count);
 
     for (i = 0; i < s->rt.entry_count; i++) {
-        hdr_copy_guid(rt_entry.guid, buffer, offset);
+        memcpy(&rt_entry, buffer+offset, sizeof(rt_entry));
+        offset += sizeof(rt_entry);
 
-        hdr_copy64(&rt_entry.file_offset,   buffer, offset);
-        hdr_copy32(&rt_entry.length,        buffer, offset);
-        hdr_copy32(&rt_entry.bitfield.data, buffer, offset);
+        leguid_to_cpus(&rt_entry.guid);
+        le64_to_cpus(&rt_entry.file_offset);
+        le32_to_cpus(&rt_entry.length);
+        le32_to_cpus(&rt_entry.bitfield.data);
 
         /* see if we recognize the entry */
         if (guid_cmp(rt_entry.guid, bat_guid)) {
@@ -412,11 +373,12 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
     if (ret < 0) {
         goto fail_no_free;
     }
-    hdr_copy64(&s->metadata_hdr.signature,   buffer, offset);
-    hdr_copy16(&s->metadata_hdr.reserved,    buffer, offset);
-    hdr_copy16(&s->metadata_hdr.entry_count, buffer, offset);
-    hdr_copy(&s->metadata_hdr.reserved2, buffer,
-             sizeof(s->metadata_hdr.reserved2), offset);
+    memcpy(&s->metadata_hdr, buffer, sizeof(s->metadata_hdr));
+    offset += sizeof(s->metadata_hdr);
+
+    le64_to_cpus(&s->metadata_hdr.signature);
+    le16_to_cpus(&s->metadata_hdr.reserved);
+    le16_to_cpus(&s->metadata_hdr.entry_count);
 
     if (s->metadata_hdr.signature != VHDX_METADATA_MAGIC) {
         ret = -1;
@@ -431,11 +393,14 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
     s->metadata_entries.present = 0;
 
     for (i = 0; i < s->metadata_hdr.entry_count; i++) {
-        hdr_copy_guid(md_entry.item_id,     buffer, offset);
-        hdr_copy32(&md_entry.offset,        buffer, offset);
-        hdr_copy32(&md_entry.length,        buffer, offset);
-        hdr_copy32(&md_entry.bitfield.data, buffer, offset);
-        hdr_copy32(&md_entry.reserved2,     buffer, offset);
+        memcpy(&md_entry, buffer+offset, sizeof(md_entry));
+        offset += sizeof(md_entry);
+
+        leguid_to_cpus(&md_entry.item_id);
+        le32_to_cpus(&md_entry.offset);
+        le32_to_cpus(&md_entry.length);
+        le32_to_cpus(&md_entry.bitfield.data);
+        le32_to_cpus(&md_entry.reserved2);
 
         if (guid_cmp(md_entry.item_id, file_param_guid)) {
             s->metadata_entries.file_parameters_entry = md_entry;
@@ -488,17 +453,14 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
         goto exit;
     }
 
-    offset = 0;
-    buffer = g_realloc(buffer,
-                       s->metadata_entries.file_parameters_entry.length);
     ret = bdrv_pread(bs->file,
                      s->metadata_entries.file_parameters_entry.offset
                                          + s->metadata_rt.file_offset,
-                     buffer,
-                     s->metadata_entries.file_parameters_entry.length);
+                     &s->params,
+                     sizeof(s->params));
 
-    hdr_copy32(&s->params.block_size,    buffer, offset);
-    hdr_copy32(&s->params.bitfield.data, buffer, offset);
+    le32_to_cpus(&s->params.block_size);
+    le32_to_cpus(&s->params.bitfield.data);
 
 
     /* We now have the file parameters, so we can tell if this is a
@@ -517,6 +479,7 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
                              s->metadata_entries.parent_locator_entry.length);
 
             ret = -1; /* temp, until differencing files are supported */
+            goto exit;
             /* TODO: parse  parent locator fields */
 
         } else {
