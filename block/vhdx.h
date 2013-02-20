@@ -10,10 +10,8 @@
  *  by Microsoft:
  *      https://www.microsoft.com/en-us/download/details.aspx?id=29681
  *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License as published by the Free
- * Software Foundation; either version 2 of the License, or (at your option)
- * any later version.
+ * This work is licensed under the terms of the GNU LGPL, version 2 or later.
+ * See the COPYING.LIB file in the top-level directory.
  *
  */
 
