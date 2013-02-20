@@ -157,8 +157,10 @@ static uint32_t vhdx_checksum(uint8_t *buf, size_t size)
  * buf: buffer to compute crc32c over,
  * size: size of the buffer to checksum
  * crc_offset: offset into buf that contains the existing 4-byte checksum
+ *
+ * reuturns true if checksum is valid, false otherwise
  */
-static int vhdx_validate_checksum(uint8_t *buf, size_t size, int crc_offset)
+static bool vhdx_checksum_is_valid(uint8_t *buf, size_t size, int crc_offset)
 {
     uint32_t crc_orig;
     uint32_t crc;
@@ -174,7 +176,7 @@ static int vhdx_validate_checksum(uint8_t *buf, size_t size, int crc_offset)
     memcpy(buf+crc_offset, &crc_orig, sizeof(crc_orig));
 
     crc_orig = le32_to_cpu(crc_orig);
-    return crc == crc_orig ? 0 : 1;
+    return crc == crc_orig;
 }
 
 /*
@@ -239,7 +241,7 @@ static int vhdx_parse_header(BlockDriverState *bs, BDRVVHDXState *s)
     memcpy(header1, buffer, sizeof(vhdx_header));
     vhdx_header_endianness(header1);
 
-    if (vhdx_validate_checksum(buffer, VHDX_HEADER_SIZE, 4) == 0 &&
+    if (vhdx_checksum_is_valid(buffer, VHDX_HEADER_SIZE, 4) &&
         header1->signature == VHDX_HDR_MAGIC) {
         printf("header1 is valid!\n");
         h1_seq = header1->sequence_number;
@@ -252,7 +254,7 @@ static int vhdx_parse_header(BlockDriverState *bs, BDRVVHDXState *s)
     memcpy(header2, buffer, sizeof(vhdx_header));
     vhdx_header_endianness(header2);
 
-    if (vhdx_validate_checksum(buffer, VHDX_HEADER_SIZE, 4) == 0 &&
+    if (vhdx_checksum_is_valid(buffer, VHDX_HEADER_SIZE, 4) &&
         header2->signature == VHDX_HDR_MAGIC) {
         printf("header2 is valid!\n");
         h2_seq = header2->sequence_number;
@@ -264,7 +266,8 @@ static int vhdx_parse_header(BlockDriverState *bs, BDRVVHDXState *s)
         s->curr_header = 1;
     } else {
         printf("NO VALID HEADER\n");
-        ret = -1;
+        ret = -EINVAL;
+        goto fail;
     }
 
     ret = 0;
@@ -307,9 +310,9 @@ static int vhdx_open_region_tables(BlockDriverState *bs, BDRVVHDXState *s)
     le32_to_cpus(&s->rt.reserved);
     offset += sizeof(s->rt);
 
-    if (vhdx_validate_checksum(buffer, VHDX_HEADER_BLOCK_SIZE, 4) ||
+    if (!vhdx_checksum_is_valid(buffer, VHDX_HEADER_BLOCK_SIZE, 4) ||
         s->rt.signature != VHDX_RT_MAGIC) {
-        ret = -1;
+        ret = -EINVAL;
         printf("region table checksum and/or magic failure\n");
         goto fail;
     }
@@ -340,7 +343,7 @@ static int vhdx_open_region_tables(BlockDriverState *bs, BDRVVHDXState *s)
             /* cannot read vhdx file - required region table entry that
              * we do not understand.  per spec, we must fail to open */
             printf("Found unknown region table entry that is REQUIRED!\n");
-            ret = -1;
+            ret = -ENOTSUP;
             goto fail;
         }
     }
@@ -379,7 +382,7 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
     le16_to_cpus(&s->metadata_hdr.entry_count);
 
     if (s->metadata_hdr.signature != VHDX_METADATA_MAGIC) {
-        ret = -1;
+        ret = -EINVAL;
         printf("metadata header signature did not match: 0x%" PRIx64 "\n",
                 s->metadata_hdr.signature);
         goto fail_no_free;
@@ -440,14 +443,14 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
             /* cannot read vhdx file - required region table entry that
              * we do not understand.  per spec, we must fail to open */
             printf("Found unknown metadata table entry that is REQUIRED!\n");
-            ret = -1;
+            ret = -ENOTSUP;
             goto exit;
         }
     }
 
     if (s->metadata_entries.present != META_ALL_PRESENT) {
         printf("Did not find all required metadata entry fields\n");
-        ret = -1;
+        ret = -ENOTSUP;
         goto exit;
     }
 
@@ -475,13 +478,13 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
                              buffer,
                              s->metadata_entries.parent_locator_entry.length);
 
-            ret = -1; /* temp, until differencing files are supported */
+            ret = -ENOTSUP; /* temp, until differencing files are supported */
             goto exit;
             /* TODO: parse  parent locator fields */
 
         } else {
             printf("Did not find all required metadata entry fields\n");
-            ret = -1;
+            ret = -EINVAL;
             goto exit;
         }
     }
@@ -493,16 +496,25 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
                                            + s->metadata_rt.file_offset,
                      &s->virtual_disk_size,
                      sizeof(uint64_t));
+    if (ret < 0) {
+        goto exit;
+    }
     ret = bdrv_pread(bs->file,
                      s->metadata_entries.logical_sector_size_entry.offset
                                              + s->metadata_rt.file_offset,
                      &s->logical_sector_size,
                      sizeof(uint32_t));
+    if (ret < 0) {
+        goto exit;
+    }
     ret = bdrv_pread(bs->file,
                      s->metadata_entries.phys_sector_size_entry.offset
                                           + s->metadata_rt.file_offset,
                      &s->physical_sector_size,
                      sizeof(uint32_t));
+    if (ret < 0) {
+        goto exit;
+    }
 
     le64_to_cpus(&s->virtual_disk_size);
     le32_to_cpus(&s->logical_sector_size);
@@ -546,7 +558,7 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
 
     if (s->logical_sector_size != BDRV_SECTOR_SIZE) {
         printf("VHDX error - QEMU only supports 512 byte sector sizes\n");
-        ret = -1;
+        ret = -ENOTSUP;
         goto exit;
     }
 
@@ -597,11 +609,12 @@ static int vhdx_open(BlockDriverState *bs, int flags)
     /* TODO: differencing files, r/w */
     /* the below is obviously temporary */
     if (flags & BDRV_O_RDWR) {
-        ret = -1;
+        ret = -ENOTSUP;
         goto fail;
     }
+    return 0;
 fail:
-    ret = 0;
+    g_free(s->bat);
     return ret;
 }
 
@@ -629,7 +642,7 @@ static int vhdx_read(BlockDriverState *bs, int64_t sector_num,
          * to see if we have the data or not */
         if (s->params.data_bits & VHDX_PARAMS_HAS_PARENT) {
             /* not supported yet */
-            ret = -1;
+            ret = -ENOTSUP;
             goto exit;
         } else {
             bat_idx = sector_num >> s->sectors_per_block_bits;
@@ -671,7 +684,7 @@ static int vhdx_read(BlockDriverState *bs, int64_t sector_num,
                 /* printf ("reading from %016" PRIx64 "\n", offset); */
                 ret = bdrv_pread(bs->file, offset, buf, bytes_to_read);
                 if (ret != bytes_to_read) {
-                    ret = -1;
+                    ret = -EIO;
                     goto exit;
                 }
                 break;
@@ -679,7 +692,7 @@ static int vhdx_read(BlockDriverState *bs, int64_t sector_num,
                 /* we don't yet support difference files, fall through
                  * to error */
             default:
-                ret = -1;
+                ret = -EIO;
                 goto exit;
                 break;
             }
