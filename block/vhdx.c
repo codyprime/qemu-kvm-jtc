@@ -577,6 +577,7 @@ static int vhdx_open(BlockDriverState *bs, int flags)
     int i;
 
     s->bat = NULL;
+    qemu_co_mutex_init(&s->lock);
 
     ret = vhdx_parse_header(bs, s);
     if (ret) {
@@ -626,8 +627,8 @@ static int vhdx_reopen_prepare(BDRVReopenState *state,
 
 
 
-static int vhdx_read(BlockDriverState *bs, int64_t sector_num,
-                    uint8_t *buf, int nb_sectors)
+static coroutine_fn int vhdx_co_readv(BlockDriverState *bs, int64_t sector_num,
+                                      int nb_sectors, QEMUIOVector *qiov)
 {
     BDRVVHDXState *s = bs->opaque;
     int ret = 0;
@@ -636,6 +637,12 @@ static int vhdx_read(BlockDriverState *bs, int64_t sector_num,
     uint64_t offset;
     uint32_t bat_idx;
     uint32_t bytes_to_read;
+    uint64_t bytes_done = 0;
+    QEMUIOVector hd_qiov;
+
+    qemu_iovec_init(&hd_qiov, qiov->niov);
+
+    qemu_co_mutex_lock(&s->lock);
 
     while (nb_sectors > 0) {
         /* We are a differencing file, so we need to inspect the sector bitmap
@@ -663,6 +670,8 @@ static int vhdx_read(BlockDriverState *bs, int64_t sector_num,
 
             bytes_to_read = sectors_avail << s->logical_sector_size_bits;
 
+            qemu_iovec_reset(&hd_qiov);
+            qemu_iovec_concat(&hd_qiov, qiov,  bytes_done, bytes_to_read);
             /*
             printf("bat_idx: %d\n", bat_idx);
             printf("sectors_avail: %d\n", bat_idx);
@@ -674,7 +683,7 @@ static int vhdx_read(BlockDriverState *bs, int64_t sector_num,
             case PAYLOAD_BLOCK_UNMAPPED:    /* fall through */
             case PAYLOAD_BLOCK_ZERO:
                 /* return zero */
-                memset(buf, 0, bytes_to_read);
+                qemu_iovec_memset(&hd_qiov, 0, 0, bytes_to_read);
                 break;
             case PAYLOAD_BLOCK_UNDEFINED:   /* fall through */
             case PAYLOAD_BLOCK_FULL_PRESENT:
@@ -682,9 +691,10 @@ static int vhdx_read(BlockDriverState *bs, int64_t sector_num,
                          (s->bat[bat_idx].data_bits >> VHDX_BAT_FILE_OFF_BITS)
                           *  1024 * 1024;
                 /* printf ("reading from %016" PRIx64 "\n", offset); */
-                ret = bdrv_pread(bs->file, offset, buf, bytes_to_read);
-                if (ret != bytes_to_read) {
-                    ret = -EIO;
+                qemu_co_mutex_unlock(&s->lock);
+                ret = bdrv_co_readv(bs->file, offset >> BDRV_SECTOR_BITS, sectors_avail, &hd_qiov);
+                qemu_co_mutex_lock(&s->lock);
+                if (ret < 0) {
                     goto exit;
                 }
                 break;
@@ -698,11 +708,13 @@ static int vhdx_read(BlockDriverState *bs, int64_t sector_num,
             }
             nb_sectors -= sectors_avail;
             sector_num += sectors_avail;
-            buf += bytes_to_read;
+            bytes_done += bytes_to_read;
         }
     }
     ret = 0;
 exit:
+    qemu_co_mutex_unlock(&s->lock);
+    qemu_iovec_destroy(&hd_qiov);
     return ret;
 }
 
@@ -774,7 +786,7 @@ static BlockDriver bdrv_vhdx = {
     .bdrv_close             = vhdx_close,
     .bdrv_reopen_prepare    = vhdx_reopen_prepare,
     .bdrv_create            = vhdx_create,
-    .bdrv_read              = vhdx_read,
+    .bdrv_co_readv          = vhdx_co_readv,
     .bdrv_write             = vhdx_co_write,
     .create_options         = vhdx_create_options,
 };
