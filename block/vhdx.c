@@ -325,7 +325,7 @@ static int vhdx_open_region_tables(BlockDriverState *bs, BDRVVHDXState *s)
         leguid_to_cpus(&rt_entry.guid);
         le64_to_cpus(&rt_entry.file_offset);
         le32_to_cpus(&rt_entry.length);
-        le32_to_cpus(&rt_entry.bitfield.data);
+        le32_to_cpus(&rt_entry.data_bits);
 
         /* see if we recognize the entry */
         if (guid_cmp(rt_entry.guid, bat_guid)) {
@@ -338,7 +338,7 @@ static int vhdx_open_region_tables(BlockDriverState *bs, BDRVVHDXState *s)
             continue;
         }
 
-        if (rt_entry.bitfield.bits.required) {
+        if (rt_entry.data_bits & VHDX_REGION_ENTRY_REQUIRED) {
             /* cannot read vhdx file - required region table entry that
              * we do not understand.  per spec, we must fail to open */
             printf("Found unknown region table entry that is REQUIRED!\n");
@@ -399,7 +399,7 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
         leguid_to_cpus(&md_entry.item_id);
         le32_to_cpus(&md_entry.offset);
         le32_to_cpus(&md_entry.length);
-        le32_to_cpus(&md_entry.bitfield.data);
+        le32_to_cpus(&md_entry.data_bits);
         le32_to_cpus(&md_entry.reserved2);
 
         if (guid_cmp(md_entry.item_id, file_param_guid)) {
@@ -438,7 +438,7 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
             continue;
         }
 
-        if (md_entry.bitfield.bits.is_required) {
+        if (md_entry.data_bits & VHDX_META_FLAGS_IS_REQUIRED) {
             /* cannot read vhdx file - required region table entry that
              * we do not understand.  per spec, we must fail to open */
             printf("Found unknown metadata table entry that is REQUIRED!\n");
@@ -460,7 +460,7 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
                      sizeof(s->params));
 
     le32_to_cpus(&s->params.block_size);
-    le32_to_cpus(&s->params.bitfield.data);
+    le32_to_cpus(&s->params.data_bits);
 
 
     /* We now have the file parameters, so we can tell if this is a
@@ -468,9 +468,8 @@ static int vhdx_parse_metadata(BlockDriverState *bs, BDRVVHDXState *s)
      * sized (leave_blocks_allocated), and the block size */
 
     /* The parent locator required iff the file parameters has_parent set */
-    if (s->params.bitfield.bits.has_parent) {
+    if (s->params.data_bits & VHDX_PARAMS_HAS_PARENT) {
         if (s->metadata_entries.present & ~META_PARENT_LOCATOR_PRESENT) {
-            offset = 0;
             buffer = g_realloc(buffer,
                                s->metadata_entries.parent_locator_entry.length);
             ret = bdrv_pread(bs->file,
@@ -593,9 +592,8 @@ static int vhdx_open(BlockDriverState *bs, int flags)
 
     ret = bdrv_pread(bs->file, s->bat_rt.file_offset, s->bat, s->bat_rt.length);
 
-    /* as it is a uint64_t bitfield, we need to have the right endianness */
     for (i = 0; i < s->bat_entries; i++) {
-        le64_to_cpus(&s->bat[i].bitfield.data);
+        le64_to_cpus(&s->bat[i].data_bits);
     }
 
     /* TODO: differencing files, r/w */
@@ -631,7 +629,7 @@ static int vhdx_read(BlockDriverState *bs, int64_t sector_num,
     while (nb_sectors > 0) {
         /* We are a differencing file, so we need to inspect the sector bitmap
          * to see if we have the data or not */
-        if (s->params.bitfield.bits.has_parent) {
+        if (s->params.data_bits & VHDX_PARAMS_HAS_PARENT) {
             /* not supported yet */
             ret = -1;
             goto exit;
@@ -660,7 +658,7 @@ static int vhdx_read(BlockDriverState *bs, int64_t sector_num,
             printf("bytes_to_read: %d\n", bat_idx);
             */
             /* check the payload block state */
-            switch (s->bat[bat_idx].bitfield.bits.state) {
+            switch (s->bat[bat_idx].data_bits & VHDX_BAT_STATE_BIT_MASK) {
             case PAYLOAD_BLOCK_NOT_PRESENT: /* fall through */
             case PAYLOAD_BLOCK_UNMAPPED:    /* fall through */
             case PAYLOAD_BLOCK_ZERO:
@@ -670,8 +668,9 @@ static int vhdx_read(BlockDriverState *bs, int64_t sector_num,
             case PAYLOAD_BLOCK_UNDEFINED:   /* fall through */
             case PAYLOAD_BLOCK_FULL_PRESENT:
                 offset = (block_offset << s->logical_sector_size_bits) +
-                         (s->bat[bat_idx].bitfield.bits.file_offset_mb
-                          * (1024 * 1024));
+                         (s->bat[bat_idx].data_bits >> VHDX_BAT_FILE_OFF_BITS)
+                          *  1024 * 1024;
+                /* printf ("reading from %016" PRIx64 "\n", offset); */
                 ret = bdrv_pread(bs->file, offset, buf, bytes_to_read);
                 if (ret != bytes_to_read) {
                     ret = -1;

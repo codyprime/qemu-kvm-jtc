@@ -140,19 +140,15 @@ typedef struct QEMU_PACKED vhdx_region_table_header {
  *  BAT (block allocation table):  2DC27766F62342009D64115E9BFD4A08
  *  Metadata:                      8B7CA20647904B9AB8FE575F050F886E
  */
+#define VHDX_REGION_ENTRY_REQUIRED  0x01    /* if set, parser must understand
+                                               this entry in order to open
+                                               file */
 typedef struct QEMU_PACKED vhdx_region_table_entry {
     ms_guid     guid;                   /* 128-bit unique identifier */
     uint64_t    file_offset;            /* offset of the object in the file.
                                            Must be multiple of 1MB */
     uint32_t    length;                 /* length, in bytes, of the object */
-    union vhdx_rt_bitfield {
-        struct {
-        uint32_t    required:1;        /* 1 if this region must be recognized
-                                          in order to load the file */
-        uint32_t    reserved:31;
-        } bits;
-        uint32_t data;
-    } bitfield;
+    uint32_t    data_bits;
 } vhdx_region_table_entry;
 
 
@@ -238,17 +234,14 @@ typedef struct QEMU_PACKED vhdx_log_data_sector {
 #define VHDX_MAX_SECTORS_PER_BLOCK  (1<<23)
 #define VHDX_BAT_ENTRY_SIZE (8) /* 8-bytes, 64-bit */
 
+#define VHDX_BAT_STATE_BIT_MASK 0x07
+#define VHDX_BAT_FILE_OFF_BITS (64-44)
 /* This is a packed struct that generally should not have alignment issues,
  * as it is just uint64_t at heart */
 typedef struct QEMU_PACKED vhdx_bat_entry {
-    union vhdx_bat_bitfield {
-        struct {
-            uint64_t    state:3;           /* state of the block (see above) */
-            uint64_t    reserved:17;
-            uint64_t    file_offset_mb:44; /* offset within file in 1MB units */
-        } bits;
-        uint64_t data;
-    } bitfield;
+    uint64_t data_bits; /* upper 44 bits are the file offset in 1MB units
+                           lower 3 bits are the state
+                           other bits are reserved */
 } vhdx_bat_entry;
 
 
@@ -268,6 +261,11 @@ typedef struct QEMU_PACKED vhdx_metadata_table_header {
     uint32_t    reserved2[5];
 } vhdx_metadata_table_header;
 
+#define VHDX_META_FLAGS_IS_USER         0x01    /* max 1024 entries */
+#define VHDX_META_FLAGS_IS_VIRTUAL_DISK 0x02    /* virtual disk metadata if set,
+                                                   otherwise file metdata */
+#define VHDX_META_FLAGS_IS_REQUIRED     0x04    /* parse must understand this
+                                                   entry to open the file */
 typedef struct QEMU_PACKED vhdx_metadata_table_entry {
     ms_guid     item_id;                /* 128-bit identifier for metadata */
     uint32_t    offset;                 /* byte offset of the metadata.  At
@@ -275,36 +273,21 @@ typedef struct QEMU_PACKED vhdx_metadata_table_entry {
                                            metadata region */
                                         /* note: if length = 0, so is offset */
     uint32_t    length;                 /* length of metadata. <= 1MB. */
-    union vhdx_metadata_bitfield {
-        struct {
-            uint32_t    is_user:1;         /* 1: user metadata, 0: system
-                                              metadata 1024 entries max can have
-                                              this set */
-            uint32_t    is_virtual_disk:1; /* See spec.  1: virtual disk
-                                              metadata 0: file metadata */
-            uint32_t    is_required:1;     /* 1: parser must understand this
-                                              data */
-            uint32_t    reserved:29;
-        } bits;
-        uint32_t data;
-    } bitfield;
+    uint32_t    data_bits;      /* least-significant 3 bits are flags, the
+                                   rest are reserved (see above) */
     uint32_t    reserved2;
 } vhdx_metadata_table_entry;
 
+#define VHDX_PARAMS_LEAVE_BLOCKS_ALLOCED 0x01   /* Do not change any blocks to
+                                                   be BLOCK_NOT_PRESENT.
+                                                   If set indicates a fixed
+                                                   size VHDX file */
+#define VHDX_PARAMS_HAS_PARENT           0x02    /* has parent / backing file */
 typedef struct QEMU_PACKED vhdx_file_parameters {
     uint32_t    block_size;             /* size of each payload block, always
                                            power of 2, <= 256MB and >= 1MB. */
-    union _bitfield {
-        struct {
-            uint32_t    leave_blocks_allocated:1; /* if 1, do not change any
-                                                     blocks to be
-                                                     BLOCK_NOT_PRESENT.  For
-                                                     fixed sized VHDX files */
-            uint32_t    has_parent:1;            /* Has parent / backing file */
-            uint32_t    reserved:30;
-        } bits;
-        uint32_t data;
-    } bitfield;
+    uint32_t data_bits;     /* least-significant 2 bits are flags, the rest
+                               are reserved (see above) */
 } vhdx_file_parameters;
 
 typedef struct QEMU_PACKED vhdx_virtual_disk_size {
