@@ -38,6 +38,17 @@
 #define VHDX_REGION_TABLE_OFFSET    (VHDX_HEADER_BLOCK_SIZE*3)
 
 
+/*
+ * A note on the use of MS-GUID fields.  For more details on the GUID,
+ * please see: https://en.wikipedia.org/wiki/Globally_unique_identifier.
+ *
+ * The VHDX specification only states that these are MS GUIDs, and which
+ * bytes are data1-data4. It makes no mention of what algorithm should be used
+ * to generate the GUID, nor what standard.  However, looking at the specified
+ * known GUID fields, it appears the GUIDs are:
+ *  Standard/DCE GUID type  (noted by 10b in the MSB of byte 0 of .data4)
+ *  Random algorithm        (noted by 0x4XXX for .data3)
+ */
 
 /* ---- HEADER SECTION STRUCTURES ---- */
 

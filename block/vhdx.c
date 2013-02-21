@@ -27,6 +27,11 @@
     le16_to_cpus(&(guid)->data2); \
     le16_to_cpus(&(guid)->data3); } while (0)
 
+#define cpu_to_leguids(guid) do { \
+    cpu_to_le32s(&(guid)->data1); \
+    cpu_to_le16s(&(guid)->data2); \
+    cpu_to_le16s(&(guid)->data3); } while (0)
+
 /* Several metadata and region table data entries are identified by
  * guids in  a MS-specific GUID format. */
 
@@ -139,26 +144,46 @@ typedef struct BDRVVHDXState {
     uint32_t bat_entries;
     vhdx_bat_entry *bat;
 
+    bool first_visible_write;
+    ms_guid session_guid;
+
     /* TODO */
 
 } BDRVVHDXState;
 
-/* CRC-32C, Castagnoli polynomial, code 0x11EDC6F41 */
-static uint32_t vhdx_checksum(uint8_t *buf, size_t size)
+/* Calculates new checksum.
+ *
+ * Zero is substituted during crc calculation for the original crc field
+ * crc_offset: byte offset in buf of the buffer crc
+ * buf: buffer pointer
+ * size: size of buffer (must be > crc_offset+4)
+ */
+static uint32_t vhdx_update_checksum(uint8_t *buf, size_t size, int crc_offset)
 {
-    uint32_t chksum;
-    chksum =  crc32c(0xffffffff, buf, size);
+    uint32_t crc;
 
-    return chksum;
+    assert(buf != NULL);
+    assert(size > (crc_offset+4));
+
+    memset(buf+crc_offset, 0, sizeof(crc));
+    crc =  crc32c(0xffffffff, buf, size);
+    memcpy(buf+crc_offset, &crc, sizeof(crc));
+
+    return crc;
 }
 
-/* validates the checksum of a region of table entries, substituting zero
- * in for the in-place checksum field of the region.
- * buf: buffer to compute crc32c over,
- * size: size of the buffer to checksum
- * crc_offset: offset into buf that contains the existing 4-byte checksum
+/* Validates the checksum of the buffer, with an in-place CRC.
  *
- * reuturns true if checksum is valid, false otherwise
+ * Zero is substituted during crc calculation for the original crc field,
+ * and the crc field is restored afterwards.  But the buffer will be modifed
+ * during the calculation, so this may not be not suitable for multi-threaded
+ * use.
+ *
+ * crc_offset: byte offset in buf of the buffer crc
+ * buf: buffer pointer
+ * size: size of buffer (must be > crc_offset+4)
+ *
+ * returns true if checksum is valid, false otherwise
  */
 static bool vhdx_checksum_is_valid(uint8_t *buf, size_t size, int crc_offset)
 {
@@ -171,12 +196,29 @@ static bool vhdx_checksum_is_valid(uint8_t *buf, size_t size, int crc_offset)
     memcpy(&crc_orig, buf+crc_offset, sizeof(crc_orig));
     memset(buf+crc_offset, 0, sizeof(crc_orig));
 
-    crc = vhdx_checksum(buf, size);
+    crc = crc32c(0xffffffff, buf, size);
 
     memcpy(buf+crc_offset, &crc_orig, sizeof(crc_orig));
 
     crc_orig = le32_to_cpu(crc_orig);
     return crc == crc_orig;
+}
+
+static void vhdx_guid_generate(ms_guid *guid) {
+    assert(guid != NULL);
+
+    int i;
+
+    guid->data1 = g_random_int();
+    guid->data2 = g_random_int_range(0, 0xffff);
+    guid->data3 = g_random_int_range(0, 0x0fff);
+    guid->data3 |= 0x4000; /* denotes random algorithm */
+
+    guid->data4[0] = g_random_int_range(0, 0x3f);
+    guid->data4[0] |= 0x80; /* denotes DCE type */
+    for (i = 1; i < sizeof(guid->data4); i++) {
+        guid->data4[i] = g_random_int_range(0, 0xff);
+    }
 }
 
 /*
@@ -198,8 +240,54 @@ static int vhdx_probe(const uint8_t *buf, int buf_size, const char *filename)
     return 0;
 }
 
+/* This is obviously debug only, and will go away for final submission */
+static void vhdx_print_header(vhdx_header *h)
+{
+    int i;
 
-static void vhdx_header_endianness(vhdx_header *h)
+    printf("\n===== VHDX Header ==========================================\n");
+    printf("signature: 0x%" PRIx32 "\n", h->signature);
+    printf("checksum: 0x%" PRIx32 "\n", h->checksum);
+    printf("sequence_number: 0x%" PRIx64 "\n", h->sequence_number);
+    printf("file_write_guid: %08" PRIx32 "-%04" PRIx16 "-%04" PRIx16 "-",
+            h->file_write_guid.data1,
+            h->file_write_guid.data2,
+            h->file_write_guid.data3);
+    printf("%02" PRIx8 "%02" PRIx8 "-", h->file_write_guid.data4[0],
+                                        h->file_write_guid.data4[1]);
+    for (i = 2; i < 8; i++) {
+        printf("%02" PRIx8, h->file_write_guid.data4[i]);
+    }
+    printf("\n");
+    printf("data_write_guid: %08" PRIx32 "-%04" PRIx16 "-%04" PRIx16 "-",
+            h->data_write_guid.data1,
+            h->data_write_guid.data2,
+            h->data_write_guid.data3);
+    printf("%02" PRIx8 "%02" PRIx8 "-", h->data_write_guid.data4[0],
+                                        h->data_write_guid.data4[1]);
+    for (i = 2; i < 8; i++) {
+        printf("%02" PRIx8, h->data_write_guid.data4[i]);
+    }
+    printf("\n");
+    printf("log_guid:        %08" PRIx32 "-%04" PRIx16 "-%04" PRIx16 "-",
+            h->log_guid.data1,
+            h->log_guid.data2,
+            h->log_guid.data3);
+    printf("%02" PRIx8 "%02" PRIx8 "-", h->log_guid.data4[0],
+                                        h->log_guid.data4[1]);
+    for (i = 2; i < 8; i++) {
+        printf("%02" PRIx8, h->log_guid.data4[i]);
+    }
+    printf("\n");
+
+    printf("log_version: 0x%" PRIx16 "\n", h->log_version);
+    printf("version: 0x%" PRIx16 "\n", h->version);
+    printf("log_length: 0x%" PRIx32 "\n", h->log_length);
+    printf("log_offset: 0x%" PRIx64 "\n", h->log_offset);
+    printf("============================================================\n\n");
+}
+
+static void vhdx_header_le_import(vhdx_header *h)
 {
     assert(h != NULL);
 
@@ -208,6 +296,8 @@ static void vhdx_header_endianness(vhdx_header *h)
     le64_to_cpus(&h->sequence_number);
 
     leguid_to_cpus(&h->file_write_guid);
+    leguid_to_cpus(&h->data_write_guid);
+    leguid_to_cpus(&h->log_guid);
 
     le16_to_cpus(&h->log_version);
     le16_to_cpus(&h->version);
@@ -215,6 +305,93 @@ static void vhdx_header_endianness(vhdx_header *h)
     le64_to_cpus(&h->log_offset);
 }
 
+static void vhdx_header_le_export(vhdx_header *orig_h, vhdx_header *new_h)
+{
+    assert(orig_h != NULL);
+    assert(new_h != NULL);
+
+    new_h->signature       = cpu_to_le32(orig_h->signature);
+    new_h->checksum        = cpu_to_le32(orig_h->checksum);
+    new_h->sequence_number = cpu_to_le64(orig_h->sequence_number);
+
+    memcpy(&new_h->file_write_guid, &orig_h->file_write_guid, sizeof(ms_guid));
+    memcpy(&new_h->data_write_guid, &orig_h->data_write_guid, sizeof(ms_guid));
+    memcpy(&new_h->log_guid,        &orig_h->log_guid,        sizeof(ms_guid));
+
+    cpu_to_leguids(&new_h->file_write_guid);
+    cpu_to_leguids(&new_h->data_write_guid);
+    cpu_to_leguids(&new_h->log_guid);
+
+    new_h->log_version     = cpu_to_le16(orig_h->log_version);
+    new_h->version         = cpu_to_le16(orig_h->version);
+    new_h->log_length      = cpu_to_le32(orig_h->log_length);
+    new_h->log_offset      = cpu_to_le64(orig_h->log_offset);
+}
+
+/* Update the VHDX headers
+ *
+ * This follows the VHDX spec procedures for header updates.
+ *
+ *  - non-current header is updated with largest sequence number
+ */
+static int vhdx_update_headers(BlockDriverState *bs, BDRVVHDXState *s, bool rw)
+{
+    int ret = 0;
+    int hdr_idx = 0;
+    uint64_t header_offset = VHDX_HEADER1_OFFSET;
+
+    vhdx_header *active_header;
+    vhdx_header *inactive_header;
+    vhdx_header header_le;
+    uint8_t *buffer;
+
+    /* operate on the non-current header */
+    if (s->curr_header == 0) {
+        hdr_idx = 1;
+        header_offset = VHDX_HEADER2_OFFSET;
+    }
+
+    active_header   = s->headers[s->curr_header];
+    inactive_header = s->headers[hdr_idx];
+
+    inactive_header->sequence_number = active_header->sequence_number + 1;
+
+    /* a new file guid must be generate before any file write, including
+     * headers */
+    memcpy(&inactive_header->file_write_guid, &s->session_guid,
+           sizeof(ms_guid));
+
+    /* a new data guid only needs to be generate before any guest-visisble
+     * writes, so update it if the imageis opened r/w.
+     * TODO: flag the first write, and only update this header field on that
+     *       write. Then even if opened r/w, we don't need to indicate such
+     *       a change if nothing is ever written to the image */
+    if (rw) {
+        vhdx_guid_generate(&inactive_header->data_write_guid);
+    }
+
+    /* the header checksum is not over just the packed size of vhdx_header,
+     * but rather over the entire 'reserved' range for the header, which is
+     * 4KB (VHDX_HEADER_SIZE). */
+
+    buffer = g_malloc(VHDX_HEADER_SIZE);
+    /* we can't assume the extra reserved bytes are 0 */
+    ret = bdrv_pread(bs->file, header_offset, buffer, VHDX_HEADER_SIZE);
+    if (ret < 0) {
+        goto fail;
+    }
+    /* overwrite the actual vhdx_header portion */
+    memcpy(buffer, inactive_header, sizeof(vhdx_header));
+    inactive_header->checksum = vhdx_update_checksum(buffer,
+                                                     VHDX_HEADER_SIZE, 4);
+    vhdx_header_le_export(inactive_header, &header_le);
+    bdrv_pwrite_sync(bs->file, header_offset, &header_le, sizeof(vhdx_header));
+    s->curr_header = hdr_idx;
+
+fail:
+    g_free(buffer);
+    return ret;
+}
 
 /* opens the specified header block from the VHDX file header section */
 static int vhdx_parse_header(BlockDriverState *bs, BDRVVHDXState *s)
@@ -239,7 +416,7 @@ static int vhdx_parse_header(BlockDriverState *bs, BDRVVHDXState *s)
         goto fail;
     }
     memcpy(header1, buffer, sizeof(vhdx_header));
-    vhdx_header_endianness(header1);
+    vhdx_header_le_import(header1);
 
     if (vhdx_checksum_is_valid(buffer, VHDX_HEADER_SIZE, 4) &&
         header1->signature == VHDX_HDR_MAGIC) {
@@ -252,7 +429,7 @@ static int vhdx_parse_header(BlockDriverState *bs, BDRVVHDXState *s)
         goto fail;
     }
     memcpy(header2, buffer, sizeof(vhdx_header));
-    vhdx_header_endianness(header2);
+    vhdx_header_le_import(header2);
 
     if (vhdx_checksum_is_valid(buffer, VHDX_HEADER_SIZE, 4) &&
         header2->signature == VHDX_HDR_MAGIC) {
@@ -577,7 +754,14 @@ static int vhdx_open(BlockDriverState *bs, int flags)
     int i;
 
     s->bat = NULL;
+    s->first_visible_write = true;
+
     qemu_co_mutex_init(&s->lock);
+
+    /* This is used for any header updates, for the file_write_guid.
+     * The spec dictates that a new value should be used for the first
+     * header update */
+    vhdx_guid_generate(&s->session_guid);
 
     ret = vhdx_parse_header(bs, s);
     if (ret) {
@@ -607,12 +791,22 @@ static int vhdx_open(BlockDriverState *bs, int flags)
         le64_to_cpus(&s->bat[i].data_bits);
     }
 
-    /* TODO: differencing files, r/w */
-    /* the below is obviously temporary */
+    printf("\nHeaders pre-update:\n");
+    vhdx_print_header(s->headers[0]);
+    vhdx_print_header(s->headers[1]);
     if (flags & BDRV_O_RDWR) {
+        vhdx_update_headers(bs, s, false);
+        vhdx_update_headers(bs, s, false);
+        /* the below is obviously temporary */
         ret = -ENOTSUP;
         goto fail;
     }
+    printf("\n\nHeaders post-update:\n");
+    vhdx_print_header(s->headers[0]);
+    vhdx_print_header(s->headers[1]);
+
+
+    /* TODO: differencing files, r/w */
     return 0;
 fail:
     g_free(s->bat);
@@ -687,12 +881,17 @@ static coroutine_fn int vhdx_co_readv(BlockDriverState *bs, int64_t sector_num,
                 break;
             case PAYLOAD_BLOCK_UNDEFINED:   /* fall through */
             case PAYLOAD_BLOCK_FULL_PRESENT:
+                /* block offset is the offset in vhdx logical sectors, in
+                 * the payload data block. Convert that to a byte offset
+                 * in the block, and add in the payload data block offset
+                 * in the file, in bytes, to get the final read address */
                 offset = (block_offset << s->logical_sector_size_bits) +
                          (s->bat[bat_idx].data_bits >> VHDX_BAT_FILE_OFF_BITS)
                           *  1024 * 1024;
                 /* printf ("reading from %016" PRIx64 "\n", offset); */
                 qemu_co_mutex_unlock(&s->lock);
-                ret = bdrv_co_readv(bs->file, offset >> BDRV_SECTOR_BITS, sectors_avail, &hd_qiov);
+                ret = bdrv_co_readv(bs->file, offset >> BDRV_SECTOR_BITS,
+                                    sectors_avail, &hd_qiov);
                 qemu_co_mutex_lock(&s->lock);
                 if (ret < 0) {
                     goto exit;
@@ -748,7 +947,7 @@ static int vhdx_create(const char *filename, QEMUOptionParameter *options)
 
     /* TODO */
 
-   return 0;
+   return -ENOTSUP;
 }
 
 static void vhdx_close(BlockDriverState *bs)
