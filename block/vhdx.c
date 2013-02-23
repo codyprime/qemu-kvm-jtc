@@ -974,27 +974,63 @@ exit:
     return ret;
 }
 
-static int vhdx_write(BlockDriverState *bs, int64_t sector_num,
-    const uint8_t *buf, int nb_sectors)
+
+static coroutine_fn int vhdx_co_writev(BlockDriverState *bs, int64_t sector_num,
+                                      int nb_sectors, QEMUIOVector *qiov)
 {
-   /* BDRVVHDXState *s = bs->opaque; */
-
-    /* TODO */
-
-    return 0;
-}
-
-static coroutine_fn int vhdx_co_write(BlockDriverState *bs, int64_t sector_num,
-                                     const uint8_t *buf, int nb_sectors)
-{
-    int ret;
+    int ret = -ENOTSUP;
+#if 0
     BDRVVHDXState *s = bs->opaque;
+    vhdx_sector_info sinfo;
+    uint64_t bytes_done = 0;
+    uint8_t *payload_buffer;
+    QEMUIOVector hd_qiov;
+
+    qemu_iovec_init(&hd_qiov, qiov->niov);
+
     qemu_co_mutex_lock(&s->lock);
-    ret = vhdx_write(bs, sector_num, buf, nb_sectors);
+    while (nb_sectors > 0) {
+        if (s->params.data_bits & VHDX_PARAMS_HAS_PARENT) {
+            /* not supported yet */
+            ret = -ENOTSUP;
+            goto exit;
+        } else {
+            vhdx_block_translate(s, sector_num, nb_sectors, &sinfo);
+
+            qemu_iovec_reset(&hd_qiov);
+            qemu_iovec_concat(&hd_qiov, qiov,  bytes_done, sinfo.bytes_avail);
+            /* check the payload block state */
+            switch (s->bat[sinfo.bat_idx].data_bits & VHDX_BAT_STATE_BIT_MASK) {
+            case PAYLOAD_BLOCK_NOT_PRESENT: /* fall through */
+            case PAYLOAD_BLOCK_UNMAPPED:    /* fall through */
+            case PAYLOAD_BLOCK_ZERO:
+            case PAYLOAD_BLOCK_UNDEFINED:   /* fall through */
+                /* allocate new block */
+                payload_buffer = g_malloc0(s->params.block_size);
+                break;
+            case PAYLOAD_BLOCK_FULL_PRESENT:
+                /* block exists, so we can just overwrite it */
+                /* printf ("reading from %016" PRIx64 "\n", offset); */
+                qemu_co_mutex_unlock(&s->lock);
+                qemu_co_mutex_lock(&s->lock);
+                break;
+            case PAYLOAD_BLOCK_PARTIALLY_PRESENT:
+                /* we don't yet support difference files, fall through
+                 * to error */
+            default:
+                ret = -EIO;
+                goto exit;
+                break;
+            }
+            nb_sectors -= sinfo.sectors_avail;
+            sector_num += sinfo.sectors_avail;
+            bytes_done += sinfo.bytes_avail;
+
+        }
+    }
+
     qemu_co_mutex_unlock(&s->lock);
-
-    /* TODO */
-
+#endif
     return ret;
 }
 
@@ -1043,7 +1079,7 @@ static BlockDriver bdrv_vhdx = {
     .bdrv_reopen_prepare    = vhdx_reopen_prepare,
     .bdrv_create            = vhdx_create,
     .bdrv_co_readv          = vhdx_co_readv,
-    .bdrv_write             = vhdx_co_write,
+    .bdrv_co_writev         = vhdx_co_writev,
     .create_options         = vhdx_create_options,
 };
 
