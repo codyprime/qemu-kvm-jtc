@@ -113,6 +113,15 @@ typedef struct vhdx_metadata_entries {
 } vhdx_metadata_entries;
 
 
+typedef struct vhdx_sector_info {
+    uint32_t bat_idx;       /* BAT entry index */
+    uint32_t sectors_avail; /* sectors available in payload block */
+    uint32_t bytes_avail;   /* bytes available in payload block */
+    uint64_t file_offset;   /* absolute offset in bytes, in file */
+} vhdx_sector_info;
+
+
+
 typedef struct BDRVVHDXState {
     CoMutex lock;
 
@@ -861,17 +870,46 @@ static int vhdx_reopen_prepare(BDRVReopenState *state,
 }
 
 
+static void vhdx_block_translate(BDRVVHDXState *s, int64_t sector_num,
+                                 int nb_sectors, vhdx_sector_info *sinfo)
+{
+    uint32_t block_offset;
+
+    sinfo->bat_idx = sector_num >> s->sectors_per_block_bits;
+    /* effectively a modulo - this gives us the offset into the block
+     * (in sector sizes) for our sector number */
+    block_offset = sector_num - (sinfo->bat_idx << s->sectors_per_block_bits);
+    /* the chunk ratio gives us the interleaving of the sector
+     * bitmaps, so we need to advance our page block index by the
+     * sector bitmaps entry number */
+    sinfo->bat_idx += sinfo->bat_idx >> s->chunk_ratio_bits;
+
+    /* the number of sectors we can read in this cycle */
+    sinfo->sectors_avail = s->sectors_per_block - block_offset;
+
+    if (sinfo->sectors_avail > nb_sectors) {
+        sinfo->sectors_avail = nb_sectors;
+    }
+
+    sinfo->bytes_avail = sinfo->sectors_avail << s->logical_sector_size_bits;
+
+    /* block offset is the offset in vhdx logical sectors, in
+     * the payload data block. Convert that to a byte offset
+     * in the block, and add in the payload data block offset
+     * in the file, in bytes, to get the final read address */
+    sinfo->file_offset = (block_offset << s->logical_sector_size_bits) +
+                    (s->bat[sinfo->bat_idx].data_bits >> VHDX_BAT_FILE_OFF_BITS)
+                    * 1024 * 1024;
+}
+
+
 
 static coroutine_fn int vhdx_co_readv(BlockDriverState *bs, int64_t sector_num,
                                       int nb_sectors, QEMUIOVector *qiov)
 {
     BDRVVHDXState *s = bs->opaque;
     int ret = 0;
-    uint32_t sectors_avail;
-    uint32_t block_offset;
-    uint64_t offset;
-    uint32_t bat_idx;
-    uint32_t bytes_to_read;
+    vhdx_sector_info sinfo;
     uint64_t bytes_done = 0;
     QEMUIOVector hd_qiov;
 
@@ -887,52 +925,30 @@ static coroutine_fn int vhdx_co_readv(BlockDriverState *bs, int64_t sector_num,
             ret = -ENOTSUP;
             goto exit;
         } else {
-            bat_idx = sector_num >> s->sectors_per_block_bits;
-            /* effectively a modulo - this gives us the offset into the block
-             * (in sector sizes) for our sector number */
-            block_offset = sector_num - (bat_idx << s->sectors_per_block_bits);
-            /* the chunk ratio gives us the interleaving of the sector
-             * bitmaps, so we need to advance our page block index by the
-             * sector bitmaps entry number */
-            bat_idx += bat_idx >> s->chunk_ratio_bits;
-
-            /* the number of sectors we can read in this cycle */
-            sectors_avail = s->sectors_per_block - block_offset;
-
-            if (sectors_avail  > nb_sectors) {
-                sectors_avail = nb_sectors;
-            }
-
-            bytes_to_read = sectors_avail << s->logical_sector_size_bits;
+            vhdx_block_translate(s, sector_num, nb_sectors, &sinfo);
 
             qemu_iovec_reset(&hd_qiov);
-            qemu_iovec_concat(&hd_qiov, qiov,  bytes_done, bytes_to_read);
+            qemu_iovec_concat(&hd_qiov, qiov,  bytes_done, sinfo.bytes_avail);
             /*
             printf("bat_idx: %d\n", bat_idx);
             printf("sectors_avail: %d\n", bat_idx);
             printf("bytes_to_read: %d\n", bat_idx);
             */
             /* check the payload block state */
-            switch (s->bat[bat_idx].data_bits & VHDX_BAT_STATE_BIT_MASK) {
+            switch (s->bat[sinfo.bat_idx].data_bits & VHDX_BAT_STATE_BIT_MASK) {
             case PAYLOAD_BLOCK_NOT_PRESENT: /* fall through */
             case PAYLOAD_BLOCK_UNMAPPED:    /* fall through */
             case PAYLOAD_BLOCK_ZERO:
                 /* return zero */
-                qemu_iovec_memset(&hd_qiov, 0, 0, bytes_to_read);
+                qemu_iovec_memset(&hd_qiov, 0, 0, sinfo.bytes_avail);
                 break;
             case PAYLOAD_BLOCK_UNDEFINED:   /* fall through */
             case PAYLOAD_BLOCK_FULL_PRESENT:
-                /* block offset is the offset in vhdx logical sectors, in
-                 * the payload data block. Convert that to a byte offset
-                 * in the block, and add in the payload data block offset
-                 * in the file, in bytes, to get the final read address */
-                offset = (block_offset << s->logical_sector_size_bits) +
-                         (s->bat[bat_idx].data_bits >> VHDX_BAT_FILE_OFF_BITS)
-                          *  1024 * 1024;
                 /* printf ("reading from %016" PRIx64 "\n", offset); */
                 qemu_co_mutex_unlock(&s->lock);
-                ret = bdrv_co_readv(bs->file, offset >> BDRV_SECTOR_BITS,
-                                    sectors_avail, &hd_qiov);
+                ret = bdrv_co_readv(bs->file,
+                                    sinfo.file_offset >> BDRV_SECTOR_BITS,
+                                    sinfo.sectors_avail, &hd_qiov);
                 qemu_co_mutex_lock(&s->lock);
                 if (ret < 0) {
                     goto exit;
@@ -946,9 +962,9 @@ static coroutine_fn int vhdx_co_readv(BlockDriverState *bs, int64_t sector_num,
                 goto exit;
                 break;
             }
-            nb_sectors -= sectors_avail;
-            sector_num += sectors_avail;
-            bytes_done += bytes_to_read;
+            nb_sectors -= sinfo.sectors_avail;
+            sector_num += sinfo.sectors_avail;
+            bytes_done += sinfo.bytes_avail;
         }
     }
     ret = 0;
