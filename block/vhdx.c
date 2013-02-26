@@ -343,7 +343,7 @@ static void vhdx_header_le_export(vhdx_header *orig_h, vhdx_header *new_h)
  *
  *  - non-current header is updated with largest sequence number
  */
-static int vhdx_update_headers(BlockDriverState *bs, BDRVVHDXState *s, bool rw)
+static int vhdx_update_header(BlockDriverState *bs, BDRVVHDXState *s, bool rw)
 {
     int ret = 0;
     int hdr_idx = 0;
@@ -400,6 +400,14 @@ static int vhdx_update_headers(BlockDriverState *bs, BDRVVHDXState *s, bool rw)
 fail:
     g_free(buffer);
     return ret;
+}
+
+static int vhdx_update_headers(BlockDriverState *bs, BDRVVHDXState *s, bool rw)
+{
+    /* per the spec, this is done twice, to make sure that
+     * there is a valid header in case of power loss/corruption */
+    vhdx_update_header(bs, s, rw);
+    vhdx_update_header(bs, s, rw);
 }
 
 /* opens the specified header block from the VHDX file header section */
@@ -845,7 +853,6 @@ static int vhdx_open(BlockDriverState *bs, int flags)
     vhdx_print_header(s->headers[0]);
     vhdx_print_header(s->headers[1]);
     if (flags & BDRV_O_RDWR) {
-        vhdx_update_headers(bs, s, false);
         vhdx_update_headers(bs, s, false);
         /* the below is obviously temporary */
         ret = -ENOTSUP;
