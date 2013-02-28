@@ -1020,6 +1020,28 @@ static uint64_t vhdx_allocate_block(BlockDriverState *bs, BDRVVHDXState *s)
     return end_of_file;
 }
 
+/*
+ * Update the BAT tablet entry with the new file offset, and the new entry
+ * state */
+static int vhdx_update_bat_table_entry(BlockDriverState *bs, BDRVVHDXState *s,
+                                       vhdx_sector_info *sinfo, int state)
+{
+    uint64_t bat_tmp;
+    uint64_t bat_entry_offset;
+
+    /* The BAT entry is a uint64, with 44 bits for the file offset in units of
+     * 1MB, and 3 bits for the block state. */
+    s->bat[sinfo->bat_idx]  = ((sinfo->file_offset>>20) <<
+                               VHDX_BAT_FILE_OFF_BITS);
+
+    s->bat[sinfo->bat_idx] |= state & VHDX_BAT_STATE_BIT_MASK;
+
+    bat_tmp = cpu_to_le64(s->bat[sinfo->bat_idx]);
+    bat_entry_offset = s->bat_offset + sinfo->bat_idx * sizeof(vhdx_bat_entry);
+
+    return bdrv_pwrite_sync(bs->file, bat_entry_offset, &bat_tmp,
+                            sizeof(vhdx_bat_entry));
+}
 
 static coroutine_fn int vhdx_co_writev(BlockDriverState *bs, int64_t sector_num,
                                       int nb_sectors, QEMUIOVector *qiov)
@@ -1029,10 +1051,11 @@ static coroutine_fn int vhdx_co_writev(BlockDriverState *bs, int64_t sector_num,
     vhdx_sector_info sinfo;
     uint64_t bytes_done = 0;
     QEMUIOVector hd_qiov;
-    int new_block_state = -1;
-    uint64_t bat_tmp;
-    uint64_t bat_entry_offset;
 
+    static uint64_t dbg_bytes_written = 0;
+    static uint64_t dbg_sectors_written = 0;
+
+    /* printf("===== %s:%d\n",__FILE__,__LINE__); */
 
     qemu_iovec_init(&hd_qiov, qiov->niov);
 
@@ -1046,7 +1069,6 @@ static coroutine_fn int vhdx_co_writev(BlockDriverState *bs, int64_t sector_num,
     }
 
     while (nb_sectors > 0) {
-        new_block_state = -1;
         if (s->params.data_bits & VHDX_PARAMS_HAS_PARENT) {
             /* not supported yet */
             ret = -ENOTSUP;
@@ -1078,25 +1100,13 @@ static coroutine_fn int vhdx_co_writev(BlockDriverState *bs, int64_t sector_num,
                 sinfo.file_offset = vhdx_allocate_block(bs, s);
                 /* once we support differencing files, this may also be
                  * partially present */
-                new_block_state = PAYLOAD_BLOCK_FULL_PRESENT;
-                /* fall through intentionally */
-            case PAYLOAD_BLOCK_FULL_PRESENT:
-                /* if the file offset address is in the header zone,
-                 * there is a problem */
-                if (sinfo.file_offset < (1024*1024)) {
-                    ret = -EFAULT;
-                    goto exit;
-                }
-                /* block exists, so we can just overwrite it */
-                /* printf ("reading from %016" PRIx64 "\n", offset); */
-                qemu_co_mutex_unlock(&s->lock);
-                ret = bdrv_co_writev(bs->file,
-                                    sinfo.file_offset,
-                                    sinfo.sectors_avail, &hd_qiov);
-                qemu_co_mutex_lock(&s->lock);
-                if (ret < 0) {
-                    goto exit;
-                }
+                /*
+                printf("%s:%d - allocating new block! (nb_sectors = %"
+                        sector_num+nb_sectors); */
+                dbg_bytes_written += sinfo.bytes_avail;
+                dbg_sectors_written += sinfo.sectors_avail;
+                /* printf("Total bytes written: %" PRId64 ", (%" PRId64 " sectors)\n",
+                        dbg_bytes_written, dbg_sectors_written); */
                 break;
             case PAYLOAD_BLOCK_PARTIALLY_PRESENT:
                 /* we don't yet support difference files, fall through
@@ -1105,22 +1115,6 @@ static coroutine_fn int vhdx_co_writev(BlockDriverState *bs, int64_t sector_num,
                 ret = -EIO;
                 goto exit;
                 break;
-            }
-            if (new_block_state >= 0) {
-                /* update block state to the newly specified state */
-                s->bat[sinfo.bat_idx]  = ((sinfo.file_offset>>20) <<
-                                           VHDX_BAT_FILE_OFF_BITS);
-                s->bat[sinfo.bat_idx] |= new_block_state &
-                                         VHDX_BAT_STATE_BIT_MASK;
-
-                bat_tmp = cpu_to_le64(s->bat[sinfo.bat_idx]);
-                bat_entry_offset = s->bat_offset + sinfo.bat_idx *
-                                   sizeof(vhdx_bat_entry);
-                ret = bdrv_pwrite_sync(bs->file, bat_entry_offset, &bat_tmp,
-                                       sizeof(vhdx_bat_entry));
-                if (ret < 0) {
-                    goto exit;
-                }
             }
 
             nb_sectors -= sinfo.sectors_avail;
@@ -1132,6 +1126,7 @@ static coroutine_fn int vhdx_co_writev(BlockDriverState *bs, int64_t sector_num,
 
 exit:
     qemu_co_mutex_unlock(&s->lock);
+    /* printf("---- %s:%d\n",__FILE__,__LINE__); */
     return ret;
 }
 
