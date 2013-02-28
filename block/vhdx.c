@@ -116,6 +116,7 @@ typedef struct vhdx_metadata_entries {
 typedef struct vhdx_sector_info {
     uint32_t bat_idx;       /* BAT entry index */
     uint32_t sectors_avail; /* sectors available in payload block */
+    uint32_t bytes_left;    /* bytes left in the block after data to r/w */
     uint32_t bytes_avail;   /* bytes available in payload block */
     uint64_t file_offset;   /* absolute offset in bytes, in file */
 } vhdx_sector_info;
@@ -152,9 +153,11 @@ typedef struct BDRVVHDXState {
 
     uint32_t bat_entries;
     vhdx_bat_entry *bat;
+    uint64_t bat_offset;
 
     bool first_visible_write;
     ms_guid session_guid;
+
 
     /* TODO */
 
@@ -404,10 +407,15 @@ fail:
 
 static int vhdx_update_headers(BlockDriverState *bs, BDRVVHDXState *s, bool rw)
 {
+    int ret;
     /* per the spec, this is done twice, to make sure that
      * there is a valid header in case of power loss/corruption */
-    vhdx_update_header(bs, s, rw);
-    vhdx_update_header(bs, s, rw);
+    ret = vhdx_update_header(bs, s, rw);
+    if (ret < 0) {
+        return ret;
+    }
+    ret = vhdx_update_header(bs, s, rw);
+    return ret;
 }
 
 /* opens the specified header block from the VHDX file header section */
@@ -840,13 +848,14 @@ static int vhdx_open(BlockDriverState *bs, int flags)
      * logical_sector_size */
     bs->total_sectors = s->virtual_disk_size / s->logical_sector_size;
 
-    s->bat_entries = s->bat_rt.length / VHDX_BAT_ENTRY_SIZE;
+    s->bat_offset = s->bat_rt.file_offset;
+    s->bat_entries = s->bat_rt.length / sizeof(vhdx_bat_entry);
     s->bat = g_malloc(s->bat_rt.length);
 
-    ret = bdrv_pread(bs->file, s->bat_rt.file_offset, s->bat, s->bat_rt.length);
+    ret = bdrv_pread(bs->file, s->bat_offset, s->bat, s->bat_rt.length);
 
     for (i = 0; i < s->bat_entries; i++) {
-        le64_to_cpus(&s->bat[i].data_bits);
+        le64_to_cpus(&s->bat[i]);
     }
 
     printf("\nHeaders pre-update:\n");
@@ -855,8 +864,8 @@ static int vhdx_open(BlockDriverState *bs, int flags)
     if (flags & BDRV_O_RDWR) {
         vhdx_update_headers(bs, s, false);
         /* the below is obviously temporary */
-        ret = -ENOTSUP;
-        goto fail;
+//        ret = -ENOTSUP;
+//        goto fail;
     }
     printf("\n\nHeaders post-update:\n");
     vhdx_print_header(s->headers[0]);
@@ -891,8 +900,10 @@ static void vhdx_block_translate(BDRVVHDXState *s, int64_t sector_num,
      * sector bitmaps entry number */
     sinfo->bat_idx += sinfo->bat_idx >> s->chunk_ratio_bits;
 
-    /* the number of sectors we can read in this cycle */
+    /* the number of sectors we can read/write in this cycle */
     sinfo->sectors_avail = s->sectors_per_block - block_offset;
+
+    sinfo->bytes_left = sinfo->sectors_avail << s->logical_sector_size_bits;
 
     if (sinfo->sectors_avail > nb_sectors) {
         sinfo->sectors_avail = nb_sectors;
@@ -900,13 +911,20 @@ static void vhdx_block_translate(BDRVVHDXState *s, int64_t sector_num,
 
     sinfo->bytes_avail = sinfo->sectors_avail << s->logical_sector_size_bits;
 
+    sinfo->file_offset = s->bat[sinfo->bat_idx] >> VHDX_BAT_FILE_OFF_BITS;
+
+    /* The file offset must be past the header section, so must be > 0 */
+    if (sinfo->file_offset == 0) {
+        return;
+    }
+
     /* block offset is the offset in vhdx logical sectors, in
      * the payload data block. Convert that to a byte offset
      * in the block, and add in the payload data block offset
      * in the file, in bytes, to get the final read address */
-    sinfo->file_offset = (block_offset << s->logical_sector_size_bits) +
-                    (s->bat[sinfo->bat_idx].data_bits >> VHDX_BAT_FILE_OFF_BITS)
-                    * 1024 * 1024;
+
+    sinfo->file_offset <<= 20;  /* now in bytes, rather than 1MB units */
+    sinfo->file_offset += (block_offset << s->logical_sector_size_bits);
 }
 
 
@@ -942,7 +960,7 @@ static coroutine_fn int vhdx_co_readv(BlockDriverState *bs, int64_t sector_num,
             printf("bytes_to_read: %d\n", bat_idx);
             */
             /* check the payload block state */
-            switch (s->bat[sinfo.bat_idx].data_bits & VHDX_BAT_STATE_BIT_MASK) {
+            switch (s->bat[sinfo.bat_idx] & VHDX_BAT_STATE_BIT_MASK) {
             case PAYLOAD_BLOCK_NOT_PRESENT: /* fall through */
             case PAYLOAD_BLOCK_UNMAPPED:    /* fall through */
             case PAYLOAD_BLOCK_ZERO:
@@ -981,22 +999,54 @@ exit:
     return ret;
 }
 
+/*
+ * Allocate a new payload block at the end of the file.
+ *
+ * Allocation will happen at 1MB alignment inside the file
+ *
+ * Returns the file offset start of the new payload block
+ */
+static uint64_t vhdx_allocate_block(BlockDriverState *bs, BDRVVHDXState *s)
+{
+    uint64_t end_of_file;
+
+    end_of_file = bdrv_getlength(bs->file);
+
+    /* per the spec, the address for a block is in units of 1MB */
+    if (end_of_file % (1024*1024)) {
+        end_of_file = ((end_of_file >> 20) + 1) << 20;  /* round up to 1MB */
+    }
+    bdrv_truncate(bs->file, end_of_file + s->params.block_size);
+    return end_of_file;
+}
+
 
 static coroutine_fn int vhdx_co_writev(BlockDriverState *bs, int64_t sector_num,
                                       int nb_sectors, QEMUIOVector *qiov)
 {
     int ret = -ENOTSUP;
-#if 0
     BDRVVHDXState *s = bs->opaque;
     vhdx_sector_info sinfo;
     uint64_t bytes_done = 0;
-    uint8_t *payload_buffer;
     QEMUIOVector hd_qiov;
+    int new_block_state = -1;
+    uint64_t bat_tmp;
+    uint64_t bat_entry_offset;
+
 
     qemu_iovec_init(&hd_qiov, qiov->niov);
 
     qemu_co_mutex_lock(&s->lock);
+
+    /* Per the spec, on the first write of guest-visible data to the file the
+     * data write guid must be updated in the header */
+    if (s->first_visible_write) {
+        s->first_visible_write = false;
+        vhdx_update_headers(bs, s, true);
+    }
+
     while (nb_sectors > 0) {
+        new_block_state = -1;
         if (s->params.data_bits & VHDX_PARAMS_HAS_PARENT) {
             /* not supported yet */
             ret = -ENOTSUP;
@@ -1007,19 +1057,46 @@ static coroutine_fn int vhdx_co_writev(BlockDriverState *bs, int64_t sector_num,
             qemu_iovec_reset(&hd_qiov);
             qemu_iovec_concat(&hd_qiov, qiov,  bytes_done, sinfo.bytes_avail);
             /* check the payload block state */
-            switch (s->bat[sinfo.bat_idx].data_bits & VHDX_BAT_STATE_BIT_MASK) {
+            switch (s->bat[sinfo.bat_idx] & VHDX_BAT_STATE_BIT_MASK) {
+            case PAYLOAD_BLOCK_ZERO:
+                /* in this case, we need to preserve zero writes for
+                 * data that is not part of this write, so we must pad
+                 * the rest of the buffer to zeroes */
+
+                /* if we are on a posix system with ftruncate() that extends
+                 * a file, then it is zero-filled for us.  On Win32, the raw
+                 * layer uses SetFilePointer and SetFileEnd, which does not
+                 * zero fill */
+
+                /* TODO: queue another write of zero buffers if the host OS does
+                 * not zero-fill on file extension */
+
+                /* intentional fall through */
             case PAYLOAD_BLOCK_NOT_PRESENT: /* fall through */
             case PAYLOAD_BLOCK_UNMAPPED:    /* fall through */
-            case PAYLOAD_BLOCK_ZERO:
             case PAYLOAD_BLOCK_UNDEFINED:   /* fall through */
-                /* allocate new block */
-                payload_buffer = g_malloc0(s->params.block_size);
-                break;
+                sinfo.file_offset = vhdx_allocate_block(bs, s);
+                /* once we support differencing files, this may also be
+                 * partially present */
+                new_block_state = PAYLOAD_BLOCK_FULL_PRESENT;
+                /* fall through intentionally */
             case PAYLOAD_BLOCK_FULL_PRESENT:
+                /* if the file offset address is in the header zone,
+                 * there is a problem */
+                if (sinfo.file_offset < (1024*1024)) {
+                    ret = -EFAULT;
+                    goto exit;
+                }
                 /* block exists, so we can just overwrite it */
                 /* printf ("reading from %016" PRIx64 "\n", offset); */
                 qemu_co_mutex_unlock(&s->lock);
+                ret = bdrv_co_writev(bs->file,
+                                    sinfo.file_offset,
+                                    sinfo.sectors_avail, &hd_qiov);
                 qemu_co_mutex_lock(&s->lock);
+                if (ret < 0) {
+                    goto exit;
+                }
                 break;
             case PAYLOAD_BLOCK_PARTIALLY_PRESENT:
                 /* we don't yet support difference files, fall through
@@ -1029,6 +1106,23 @@ static coroutine_fn int vhdx_co_writev(BlockDriverState *bs, int64_t sector_num,
                 goto exit;
                 break;
             }
+            if (new_block_state >= 0) {
+                /* update block state to the newly specified state */
+                s->bat[sinfo.bat_idx]  = ((sinfo.file_offset>>20) <<
+                                           VHDX_BAT_FILE_OFF_BITS);
+                s->bat[sinfo.bat_idx] |= new_block_state &
+                                         VHDX_BAT_STATE_BIT_MASK;
+
+                bat_tmp = cpu_to_le64(s->bat[sinfo.bat_idx]);
+                bat_entry_offset = s->bat_offset + sinfo.bat_idx *
+                                   sizeof(vhdx_bat_entry);
+                ret = bdrv_pwrite_sync(bs->file, bat_entry_offset, &bat_tmp,
+                                       sizeof(vhdx_bat_entry));
+                if (ret < 0) {
+                    goto exit;
+                }
+            }
+
             nb_sectors -= sinfo.sectors_avail;
             sector_num += sinfo.sectors_avail;
             bytes_done += sinfo.bytes_avail;
@@ -1036,8 +1130,8 @@ static coroutine_fn int vhdx_co_writev(BlockDriverState *bs, int64_t sector_num,
         }
     }
 
+exit:
     qemu_co_mutex_unlock(&s->lock);
-#endif
     return ret;
 }
 

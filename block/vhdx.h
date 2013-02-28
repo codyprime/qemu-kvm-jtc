@@ -241,20 +241,12 @@ typedef struct QEMU_PACKED vhdx_log_data_sector {
 
 /* per the spec */
 #define VHDX_MAX_SECTORS_PER_BLOCK  (1<<23)
-#define VHDX_BAT_ENTRY_SIZE (8) /* 8-bytes, 64-bit */
 
+/* upper 44 bits are the file offset in 1MB units lower 3 bits are the state
+   other bits are reserved */
 #define VHDX_BAT_STATE_BIT_MASK 0x07
 #define VHDX_BAT_FILE_OFF_BITS (64-44)
-/* This is a packed struct that generally should not have alignment issues,
- * as it is just uint64_t at heart */
-typedef struct QEMU_PACKED vhdx_bat_entry {
-    uint64_t data_bits; /* upper 44 bits are the file offset in 1MB units
-                           lower 3 bits are the state
-                           other bits are reserved */
-} vhdx_bat_entry;
-
-
-
+typedef uint64_t vhdx_bat_entry;
 
 /* ---- METADATA REGION STRUCTURES ---- */
 
