@@ -119,6 +119,7 @@ typedef struct vhdx_sector_info {
     uint32_t bytes_left;    /* bytes left in the block after data to r/w */
     uint32_t bytes_avail;   /* bytes available in payload block */
     uint64_t file_offset;   /* absolute offset in bytes, in file */
+    uint64_t block_offset;  /* block offset, in bytes */
 } vhdx_sector_info;
 
 
@@ -913,6 +914,8 @@ static void vhdx_block_translate(BDRVVHDXState *s, int64_t sector_num,
 
     sinfo->file_offset = s->bat[sinfo->bat_idx] >> VHDX_BAT_FILE_OFF_BITS;
 
+    sinfo->block_offset = block_offset << s->logical_sector_size_bits;
+
     /* The file offset must be past the header section, so must be > 0 */
     if (sinfo->file_offset == 0) {
         return;
@@ -924,7 +927,7 @@ static void vhdx_block_translate(BDRVVHDXState *s, int64_t sector_num,
      * in the file, in bytes, to get the final read address */
 
     sinfo->file_offset <<= 20;  /* now in bytes, rather than 1MB units */
-    sinfo->file_offset += (block_offset << s->logical_sector_size_bits);
+    sinfo->file_offset += sinfo->block_offset;
 }
 
 
@@ -1006,18 +1009,16 @@ exit:
  *
  * Returns the file offset start of the new payload block
  */
-static uint64_t vhdx_allocate_block(BlockDriverState *bs, BDRVVHDXState *s)
+static int vhdx_allocate_block(BlockDriverState *bs, BDRVVHDXState *s,
+                                    uint64_t *new_offset)
 {
-    uint64_t end_of_file;
-
-    end_of_file = bdrv_getlength(bs->file);
+    *new_offset = bdrv_getlength(bs->file);
 
     /* per the spec, the address for a block is in units of 1MB */
-    if (end_of_file % (1024*1024)) {
-        end_of_file = ((end_of_file >> 20) + 1) << 20;  /* round up to 1MB */
+    if (*new_offset % (1024*1024)) {
+        *new_offset = ((*new_offset >> 20) + 1) << 20;  /* round up to 1MB */
     }
-    bdrv_truncate(bs->file, end_of_file + s->params.block_size);
-    return end_of_file;
+    return bdrv_truncate(bs->file, *new_offset + s->params.block_size);
 }
 
 /*
@@ -1097,11 +1098,45 @@ static coroutine_fn int vhdx_co_writev(BlockDriverState *bs, int64_t sector_num,
             case PAYLOAD_BLOCK_NOT_PRESENT: /* fall through */
             case PAYLOAD_BLOCK_UNMAPPED:    /* fall through */
             case PAYLOAD_BLOCK_UNDEFINED:   /* fall through */
-                sinfo.file_offset = vhdx_allocate_block(bs, s);
-                /* once we support differencing files, this may also be
-                 * partially present */
+                ret = vhdx_allocate_block(bs, s, &sinfo.file_offset);
+                if (ret < 0) {
+                    goto exit;
+                }
                 /*
                 printf("%s:%d - allocating new block! (nb_sectors = %"
+                        PRId32 ", sinfo.bytes_avail = %" PRId32 ")\n",
+                        __FILE__,__LINE__,nb_sectors, sinfo.bytes_avail);
+                */
+                /* once we support differencing files, this may also be
+                 * partially present */
+                /* update block state to the newly specified state */
+                ret = vhdx_update_bat_table_entry(bs, s, &sinfo,
+                                                  PAYLOAD_BLOCK_FULL_PRESENT);
+                if (ret < 0) {
+                    goto exit;
+                }
+                /* since we just allocated a block, file_offset is the
+                 * beginning of the payload block. It needs to be the
+                 * write address, which includes the offset into the block */
+                sinfo.file_offset += sinfo.block_offset;
+                /* fall through */
+            case PAYLOAD_BLOCK_FULL_PRESENT:
+                /* if the file offset address is in the header zone,
+                 * there is a problem */
+                if (sinfo.file_offset < (1024*1024)) {
+                    ret = -EFAULT;
+                    goto exit;
+                }
+                /* block exists, so we can just overwrite it */
+                qemu_co_mutex_unlock(&s->lock);
+                ret = bdrv_co_writev(bs->file,
+                                    sinfo.file_offset>>BDRV_SECTOR_BITS,
+                                    sinfo.sectors_avail, &hd_qiov);
+                qemu_co_mutex_lock(&s->lock);
+                if (ret < 0) {
+                    goto exit;
+                }
+                /* printf("Wrote sectors %" PRId64 "-%" PRId64 "\n", sector_num,
                         sector_num+nb_sectors); */
                 dbg_bytes_written += sinfo.bytes_avail;
                 dbg_sectors_written += sinfo.sectors_avail;
