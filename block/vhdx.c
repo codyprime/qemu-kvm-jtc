@@ -140,6 +140,7 @@ typedef struct BDRVVHDXState {
     vhdx_metadata_entries metadata_entries;
 
     vhdx_file_parameters params;
+    uint32_t block_size;
     uint32_t block_size_bits;
     uint32_t sectors_per_block;
     uint32_t sectors_per_block_bits;
@@ -844,6 +845,7 @@ static int vhdx_open(BlockDriverState *bs, int flags)
     if (ret) {
         goto fail;
     }
+    s->block_size = s->params.block_size;
 
     /* the VHDX spec dictates that virtual_disk_size is always a multiple of
      * logical_sector_size */
@@ -957,22 +959,17 @@ static coroutine_fn int vhdx_co_readv(BlockDriverState *bs, int64_t sector_num,
 
             qemu_iovec_reset(&hd_qiov);
             qemu_iovec_concat(&hd_qiov, qiov,  bytes_done, sinfo.bytes_avail);
-            /*
-            printf("bat_idx: %d\n", bat_idx);
-            printf("sectors_avail: %d\n", bat_idx);
-            printf("bytes_to_read: %d\n", bat_idx);
-            */
+
             /* check the payload block state */
             switch (s->bat[sinfo.bat_idx] & VHDX_BAT_STATE_BIT_MASK) {
             case PAYLOAD_BLOCK_NOT_PRESENT: /* fall through */
+            case PAYLOAD_BLOCK_UNDEFINED:   /* fall through */
             case PAYLOAD_BLOCK_UNMAPPED:    /* fall through */
             case PAYLOAD_BLOCK_ZERO:
                 /* return zero */
                 qemu_iovec_memset(&hd_qiov, 0, 0, sinfo.bytes_avail);
                 break;
-            case PAYLOAD_BLOCK_UNDEFINED:   /* fall through */
             case PAYLOAD_BLOCK_FULL_PRESENT:
-                /* printf ("reading from %016" PRIx64 "\n", offset); */
                 qemu_co_mutex_unlock(&s->lock);
                 ret = bdrv_co_readv(bs->file,
                                     sinfo.file_offset >> BDRV_SECTOR_BITS,
@@ -1018,7 +1015,7 @@ static int vhdx_allocate_block(BlockDriverState *bs, BDRVVHDXState *s,
     if (*new_offset % (1024*1024)) {
         *new_offset = ((*new_offset >> 20) + 1) << 20;  /* round up to 1MB */
     }
-    return bdrv_truncate(bs->file, *new_offset + s->params.block_size);
+    return bdrv_truncate(bs->file, *new_offset + s->block_size);
 }
 
 /*
@@ -1053,11 +1050,6 @@ static coroutine_fn int vhdx_co_writev(BlockDriverState *bs, int64_t sector_num,
     uint64_t bytes_done = 0;
     QEMUIOVector hd_qiov;
 
-    static uint64_t dbg_bytes_written = 0;
-    static uint64_t dbg_sectors_written = 0;
-
-    /* printf("===== %s:%d\n",__FILE__,__LINE__); */
-
     qemu_iovec_init(&hd_qiov, qiov->niov);
 
     qemu_co_mutex_lock(&s->lock);
@@ -1089,12 +1081,12 @@ static coroutine_fn int vhdx_co_writev(BlockDriverState *bs, int64_t sector_num,
                 /* if we are on a posix system with ftruncate() that extends
                  * a file, then it is zero-filled for us.  On Win32, the raw
                  * layer uses SetFilePointer and SetFileEnd, which does not
-                 * zero fill */
+                 * zero fill AFAIK */
 
                 /* TODO: queue another write of zero buffers if the host OS does
                  * not zero-fill on file extension */
 
-                /* intentional fall through */
+                /* fall through */
             case PAYLOAD_BLOCK_NOT_PRESENT: /* fall through */
             case PAYLOAD_BLOCK_UNMAPPED:    /* fall through */
             case PAYLOAD_BLOCK_UNDEFINED:   /* fall through */
@@ -1102,11 +1094,6 @@ static coroutine_fn int vhdx_co_writev(BlockDriverState *bs, int64_t sector_num,
                 if (ret < 0) {
                     goto exit;
                 }
-                /*
-                printf("%s:%d - allocating new block! (nb_sectors = %"
-                        PRId32 ", sinfo.bytes_avail = %" PRId32 ")\n",
-                        __FILE__,__LINE__,nb_sectors, sinfo.bytes_avail);
-                */
                 /* once we support differencing files, this may also be
                  * partially present */
                 /* update block state to the newly specified state */
@@ -1136,12 +1123,6 @@ static coroutine_fn int vhdx_co_writev(BlockDriverState *bs, int64_t sector_num,
                 if (ret < 0) {
                     goto exit;
                 }
-                /* printf("Wrote sectors %" PRId64 "-%" PRId64 "\n", sector_num,
-                        sector_num+nb_sectors); */
-                dbg_bytes_written += sinfo.bytes_avail;
-                dbg_sectors_written += sinfo.sectors_avail;
-                /* printf("Total bytes written: %" PRId64 ", (%" PRId64 " sectors)\n",
-                        dbg_bytes_written, dbg_sectors_written); */
                 break;
             case PAYLOAD_BLOCK_PARTIALLY_PRESENT:
                 /* we don't yet support difference files, fall through
@@ -1161,18 +1142,9 @@ static coroutine_fn int vhdx_co_writev(BlockDriverState *bs, int64_t sector_num,
 
 exit:
     qemu_co_mutex_unlock(&s->lock);
-    /* printf("---- %s:%d\n",__FILE__,__LINE__); */
     return ret;
 }
 
-
-static int vhdx_create(const char *filename, QEMUOptionParameter *options)
-{
-
-    /* TODO */
-
-   return -ENOTSUP;
-}
 
 static void vhdx_close(BlockDriverState *bs)
 {
@@ -1208,7 +1180,6 @@ static BlockDriver bdrv_vhdx = {
     .bdrv_open              = vhdx_open,
     .bdrv_close             = vhdx_close,
     .bdrv_reopen_prepare    = vhdx_reopen_prepare,
-    .bdrv_create            = vhdx_create,
     .bdrv_co_readv          = vhdx_co_readv,
     .bdrv_co_writev         = vhdx_co_writev,
     .create_options         = vhdx_create_options,
