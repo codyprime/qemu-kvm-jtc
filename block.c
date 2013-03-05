@@ -2450,8 +2450,14 @@ int bdrv_truncate(BlockDriverState *bs, int64_t offset)
     if (bdrv_in_use(bs))
         return -EBUSY;
 
-    /* There better not be any in-flight IOs when we truncate the device. */
-    bdrv_drain_all();
+    /* Don't force a drain if we are just growing the file - otherwise,
+     * using bdrv_truncate() from within a block driver in a read/write
+     * operation will cause an assert, because bdrv_drain_all() will assert if
+     * a tracked_request is still in progress. */
+    if (!bs->growable || offset < bdrv_getlength(bs)) {
+        /* There better not be any in-flight IOs when we truncate the device. */
+        bdrv_drain_all();
+    }
 
     ret = drv->bdrv_truncate(bs, offset);
     if (ret == 0) {
