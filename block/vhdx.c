@@ -27,6 +27,11 @@
     le16_to_cpus(&(guid)->data2); \
     le16_to_cpus(&(guid)->data3); } while (0)
 
+#define cpu_to_leguids(guid) do { \
+    cpu_to_le32s(&(guid)->data1); \
+    cpu_to_le16s(&(guid)->data2); \
+    cpu_to_le16s(&(guid)->data3); } while (0)
+
 /* Several metadata and region table data entries are identified by
  * guids in  a MS-specific GUID format. */
 
@@ -160,10 +165,34 @@ typedef struct BDRVVHDXState {
     vhdx_bat_entry *bat;
     uint64_t bat_offset;
 
+    ms_guid session_guid;
+
+
     vhdx_parent_locator_header parent_header;
     vhdx_parent_locator_entry *parent_entries;
 
 } BDRVVHDXState;
+
+/* Calculates new checksum.
+ *
+ * Zero is substituted during crc calculation for the original crc field
+ * crc_offset: byte offset in buf of the buffer crc
+ * buf: buffer pointer
+ * size: size of buffer (must be > crc_offset+4)
+ */
+static uint32_t vhdx_update_checksum(uint8_t *buf, size_t size, int crc_offset)
+{
+    uint32_t crc;
+
+    assert(buf != NULL);
+    assert(size > (crc_offset+4));
+
+    memset(buf+crc_offset, 0, sizeof(crc));
+    crc =  crc32c(0xffffffff, buf, size);
+    memcpy(buf+crc_offset, &crc, sizeof(crc));
+
+    return crc;
+}
 
 /* Validates the checksum of the buffer, with an in-place CRC.
  *
@@ -195,6 +224,33 @@ static bool vhdx_checksum_is_valid(uint8_t *buf, size_t size, int crc_offset)
 
     crc_orig = le32_to_cpu(crc_orig);
     return crc == crc_orig;
+}
+
+/*
+ * This generates a UUID that is compliant with the MS GUIDs used
+ * in the VHDX spec (and elsewhere).
+ *
+ * We can do this with uuid_generate if uuid.h is present,
+ * however not all systems have uuid and the generation is
+ * pretty straightforward for the DCE + random usage case
+ *
+ */
+static void vhdx_guid_generate(ms_guid *guid)
+{
+    assert(guid != NULL);
+
+    int i;
+
+    guid->data1 = g_random_int();
+    guid->data2 = g_random_int_range(0, 0xffff);
+    guid->data3 = g_random_int_range(0, 0x0fff);
+    guid->data3 |= 0x4000; /* denotes random algorithm */
+
+    guid->data4[0] = g_random_int_range(0, 0x3f);
+    guid->data4[0] |= 0x80; /* denotes DCE type */
+    for (i = 1; i < sizeof(guid->data4); i++) {
+        guid->data4[i] = g_random_int_range(0, 0xff);
+    }
 }
 
 /*
@@ -236,6 +292,107 @@ static void vhdx_header_le_import(vhdx_header *h)
     le64_to_cpus(&h->log_offset);
 }
 
+/* All VHDX structures on disk are little endian */
+static void vhdx_header_le_export(vhdx_header *orig_h, vhdx_header *new_h)
+{
+    assert(orig_h != NULL);
+    assert(new_h != NULL);
+
+    new_h->signature       = cpu_to_le32(orig_h->signature);
+    new_h->checksum        = cpu_to_le32(orig_h->checksum);
+    new_h->sequence_number = cpu_to_le64(orig_h->sequence_number);
+
+    memcpy(&new_h->file_write_guid, &orig_h->file_write_guid, sizeof(ms_guid));
+    memcpy(&new_h->data_write_guid, &orig_h->data_write_guid, sizeof(ms_guid));
+    memcpy(&new_h->log_guid,        &orig_h->log_guid,        sizeof(ms_guid));
+
+    cpu_to_leguids(&new_h->file_write_guid);
+    cpu_to_leguids(&new_h->data_write_guid);
+    cpu_to_leguids(&new_h->log_guid);
+
+    new_h->log_version     = cpu_to_le16(orig_h->log_version);
+    new_h->version         = cpu_to_le16(orig_h->version);
+    new_h->log_length      = cpu_to_le32(orig_h->log_length);
+    new_h->log_offset      = cpu_to_le64(orig_h->log_offset);
+}
+
+/* Update the VHDX headers
+ *
+ * This follows the VHDX spec procedures for header updates.
+ *
+ *  - non-current header is updated with largest sequence number
+ */
+static int vhdx_update_header(BlockDriverState *bs, BDRVVHDXState *s, bool rw)
+{
+    int ret = 0;
+    int hdr_idx = 0;
+    uint64_t header_offset = VHDX_HEADER1_OFFSET;
+
+    vhdx_header *active_header;
+    vhdx_header *inactive_header;
+    vhdx_header header_le;
+    uint8_t *buffer;
+
+    /* operate on the non-current header */
+    if (s->curr_header == 0) {
+        hdr_idx = 1;
+        header_offset = VHDX_HEADER2_OFFSET;
+    }
+
+    active_header   = s->headers[s->curr_header];
+    inactive_header = s->headers[hdr_idx];
+
+    inactive_header->sequence_number = active_header->sequence_number + 1;
+
+    /* a new file guid must be generate before any file write, including
+     * headers */
+    memcpy(&inactive_header->file_write_guid, &s->session_guid,
+           sizeof(ms_guid));
+
+    /* a new data guid only needs to be generate before any guest-visisble
+     * writes, so update it if the image is opened r/w. */
+    if (rw) {
+        vhdx_guid_generate(&inactive_header->data_write_guid);
+    }
+
+    /* the header checksum is not over just the packed size of vhdx_header,
+     * but rather over the entire 'reserved' range for the header, which is
+     * 4KB (VHDX_HEADER_SIZE). */
+
+    buffer = g_malloc(VHDX_HEADER_SIZE);
+    /* we can't assume the extra reserved bytes are 0 */
+    ret = bdrv_pread(bs->file, header_offset, buffer, VHDX_HEADER_SIZE);
+    if (ret < 0) {
+        goto fail;
+    }
+    /* overwrite the actual vhdx_header portion */
+    memcpy(buffer, inactive_header, sizeof(vhdx_header));
+    inactive_header->checksum = vhdx_update_checksum(buffer,
+                                                     VHDX_HEADER_SIZE, 4);
+    vhdx_header_le_export(inactive_header, &header_le);
+    bdrv_pwrite_sync(bs->file, header_offset, &header_le, sizeof(vhdx_header));
+    s->curr_header = hdr_idx;
+
+fail:
+    g_free(buffer);
+    return ret;
+}
+
+/*
+ * The VHDX spec calls for header updates to be performed twice, so that both
+ * the current and non-current header have valid info
+ */
+static int vhdx_update_headers(BlockDriverState *bs, BDRVVHDXState *s, bool rw)
+{
+    int ret;
+
+    ret = vhdx_update_header(bs, s, rw);
+    if (ret < 0) {
+        return ret;
+    }
+    ret = vhdx_update_header(bs, s, rw);
+    return ret;
+}
 
 /* opens the specified header block from the VHDX file header section */
 static int vhdx_parse_header(BlockDriverState *bs, BDRVVHDXState *s)
@@ -628,6 +785,11 @@ static int vhdx_open(BlockDriverState *bs, int flags)
 
     qemu_co_mutex_init(&s->lock);
 
+    /* This is used for any header updates, for the file_write_guid.
+     * The spec dictates that a new value should be used for the first
+     * header update */
+    vhdx_guid_generate(&s->session_guid);
+
     ret = vhdx_parse_header(bs, s);
     if (ret) {
         goto fail;
@@ -664,8 +826,7 @@ static int vhdx_open(BlockDriverState *bs, int flags)
     }
 
     if (flags & BDRV_O_RDWR) {
-        ret = -ENOTSUP;
-        goto fail;
+        vhdx_update_headers(bs, s, false);
     }
 
     /* TODO: differencing files, write */
