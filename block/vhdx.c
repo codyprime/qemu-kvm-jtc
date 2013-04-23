@@ -173,7 +173,7 @@ typedef struct VHDXSectorInfo {
  *       make sure that vhdx_header_le_export() is used to convert to the
  *       correct endianness
  */
-static uint32_t vhdx_update_checksum(uint8_t *buf, size_t size, int crc_offset)
+uint32_t vhdx_update_checksum(uint8_t *buf, size_t size, int crc_offset)
 {
     uint32_t crc;
 
@@ -246,7 +246,7 @@ bool vhdx_checksum_is_valid(uint8_t *buf, size_t size, int crc_offset)
  * pretty straightforward for the DCE + random usage case
  *
  */
-static void vhdx_guid_generate(MSGUID *guid)
+void vhdx_guid_generate(MSGUID *guid)
 {
     uuid_t uuid;
     assert(guid != NULL);
@@ -274,56 +274,14 @@ static int vhdx_probe(const uint8_t *buf, int buf_size, const char *filename)
     return 0;
 }
 
-/* All VHDX structures on disk are little endian */
-static void vhdx_header_le_import(VHDXHeader *h)
-{
-    assert(h != NULL);
-
-    le32_to_cpus(&h->signature);
-    le32_to_cpus(&h->checksum);
-    le64_to_cpus(&h->sequence_number);
-
-    leguid_to_cpus(&h->file_write_guid);
-    leguid_to_cpus(&h->data_write_guid);
-    leguid_to_cpus(&h->log_guid);
-
-    le16_to_cpus(&h->log_version);
-    le16_to_cpus(&h->version);
-    le32_to_cpus(&h->log_length);
-    le64_to_cpus(&h->log_offset);
-}
-
-/* All VHDX structures on disk are little endian */
-static void vhdx_header_le_export(VHDXHeader *orig_h, VHDXHeader *new_h)
-{
-    assert(orig_h != NULL);
-    assert(new_h != NULL);
-
-    new_h->signature       = cpu_to_le32(orig_h->signature);
-    new_h->checksum        = cpu_to_le32(orig_h->checksum);
-    new_h->sequence_number = cpu_to_le64(orig_h->sequence_number);
-
-    memcpy(&new_h->file_write_guid, &orig_h->file_write_guid, sizeof(MSGUID));
-    memcpy(&new_h->data_write_guid, &orig_h->data_write_guid, sizeof(MSGUID));
-    memcpy(&new_h->log_guid,        &orig_h->log_guid,        sizeof(MSGUID));
-
-    cpu_to_leguids(&new_h->file_write_guid);
-    cpu_to_leguids(&new_h->data_write_guid);
-    cpu_to_leguids(&new_h->log_guid);
-
-    new_h->log_version     = cpu_to_le16(orig_h->log_version);
-    new_h->version         = cpu_to_le16(orig_h->version);
-    new_h->log_length      = cpu_to_le32(orig_h->log_length);
-    new_h->log_offset      = cpu_to_le64(orig_h->log_offset);
-}
-
 /* Update the VHDX headers
  *
  * This follows the VHDX spec procedures for header updates.
  *
  *  - non-current header is updated with largest sequence number
  */
-static int vhdx_update_header(BlockDriverState *bs, BDRVVHDXState *s, bool rw)
+static int vhdx_update_header(BlockDriverState *bs, BDRVVHDXState *s, bool rw,
+                              MSGUID *log_guid)
 {
     int ret = 0;
     int hdr_idx = 0;
@@ -350,10 +308,15 @@ static int vhdx_update_header(BlockDriverState *bs, BDRVVHDXState *s, bool rw)
     memcpy(&inactive_header->file_write_guid, &s->session_guid,
            sizeof(MSGUID));
 
-    /* a new data guid only needs to be generate before any guest-visisble
+    /* a new data guid only needs to be generate before any guest-visible
      * writes, so update it if the image is opened r/w. */
     if (rw) {
         vhdx_guid_generate(&inactive_header->data_write_guid);
+    }
+
+    /* update the log guid if present */
+    if (log_guid) {
+        memcpy(&inactive_header->log_guid, log_guid, sizeof(MSGUID));
     }
 
     /* the header checksum is not over just the packed size of VHDXHeader,
@@ -383,15 +346,16 @@ fail:
  * The VHDX spec calls for header updates to be performed twice, so that both
  * the current and non-current header have valid info
  */
-static int vhdx_update_headers(BlockDriverState *bs, BDRVVHDXState *s, bool rw)
+int vhdx_update_headers(BlockDriverState *bs, BDRVVHDXState *s, bool rw,
+                        MSGUID *log_guid)
 {
     int ret;
 
-    ret = vhdx_update_header(bs, s, rw);
+    ret = vhdx_update_header(bs, s, rw, log_guid);
     if (ret < 0) {
         return ret;
     }
-    ret = vhdx_update_header(bs, s, rw);
+    ret = vhdx_update_header(bs, s, rw, log_guid);
 
     vhdx_print_header(s->headers[0]);
     vhdx_print_header(s->headers[1]);
@@ -410,6 +374,7 @@ static int vhdx_parse_header(BlockDriverState *bs, BDRVVHDXState *s)
     uint64_t h2_seq = 0;
     uint8_t *buffer;
 
+    /* header1 & header2 are freed in vhdx_close() */
     header1 = qemu_blockalign(bs, sizeof(VHDXHeader));
     header2 = qemu_blockalign(bs, sizeof(VHDXHeader));
 
@@ -476,6 +441,8 @@ static int vhdx_parse_header(BlockDriverState *bs, BDRVVHDXState *s)
 
     ret = 0;
 
+    vhdx_print_header(s->headers[0]);
+    vhdx_print_header(s->headers[1]);
     goto exit;
 
 fail:
@@ -820,48 +787,6 @@ exit:
     return ret;
 }
 
-/* Parse the replay log.  Per the VHDX spec, if the log is present
- * it must be replayed prior to opening the file, even read-only.
- *
- * If read-only, we must replay the log in RAM (or refuse to open
- * a dirty VHDX file read-only */
-static int vhdx_parse_log(BlockDriverState *bs, BDRVVHDXState *s)
-{
-    int ret = 0;
-    int i;
-    VHDXHeader *hdr;
-
-    hdr = s->headers[s->curr_header];
-
-    /* either the log guid, or log length is zero,
-     * then a replay log is present */
-    for (i = 0; i < sizeof(hdr->log_guid.data4); i++) {
-        ret |= hdr->log_guid.data4[i];
-    }
-    if (hdr->log_guid.data1 == 0 &&
-        hdr->log_guid.data2 == 0 &&
-        hdr->log_guid.data3 == 0 &&
-        ret == 0) {
-        goto exit;
-    }
-
-    /* per spec, only log version of 0 is supported */
-    if (hdr->log_version != 0) {
-        ret = -EINVAL;
-        goto exit;
-    }
-
-    if (hdr->log_length == 0) {
-        goto exit;
-    }
-
-    /* We currently do not support images with logs to replay */
-    ret = -ENOTSUP;
-
-exit:
-    return ret;
-}
-
 
 static int vhdx_open(BlockDriverState *bs, QDict *options, int flags)
 {
@@ -874,7 +799,7 @@ static int vhdx_open(BlockDriverState *bs, QDict *options, int flags)
 
     s->bat = NULL;
     s->first_visible_write = true;
-    s->log.head = s->log.tail = 0;
+    s->log.write = s->log.read = 0;
 
     qemu_co_mutex_init(&s->lock);
 
@@ -942,6 +867,7 @@ static int vhdx_open(BlockDriverState *bs, QDict *options, int flags)
         goto fail;
     }
 
+    /* s->bat is freed in vhdx_close() */
     s->bat = qemu_blockalign(bs, s->bat_rt.length);
 
     ret = bdrv_pread(bs->file, s->bat_offset, s->bat, s->bat_rt.length);
@@ -954,7 +880,7 @@ static int vhdx_open(BlockDriverState *bs, QDict *options, int flags)
     }
 
     if (flags & BDRV_O_RDWR) {
-        vhdx_update_headers(bs, s, false);
+        vhdx_update_headers(bs, s, false, NULL);
     }
 
     /* TODO: differencing files */
@@ -1105,7 +1031,9 @@ static int vhdx_allocate_block(BlockDriverState *bs, BDRVVHDXState *s,
     if (*new_offset % (1024*1024)) {
         *new_offset = ((*new_offset >> 20) + 1) << 20;  /* round up to 1MB */
     }
+//#error must update log last_file_offset
     return bdrv_truncate(bs->file, *new_offset + s->block_size);
+//#error must update log flushed_file_offset
 }
 
 /*
@@ -1127,8 +1055,10 @@ static int vhdx_update_bat_table_entry(BlockDriverState *bs, BDRVVHDXState *s,
     bat_tmp = cpu_to_le64(s->bat[sinfo->bat_idx]);
     bat_entry_offset = s->bat_offset + sinfo->bat_idx * sizeof(VHDXBatEntry);
 
-    return bdrv_pwrite_sync(bs->file, bat_entry_offset, &bat_tmp,
-                            sizeof(VHDXBatEntry));
+    /* this will update the BAT entry into the log journal, and then flush the
+     * log journal out to disk */
+    return vhdx_log_write_and_flush(bs, s, &bat_tmp, sizeof(VHDXBatEntry),
+                                    bat_entry_offset);
 }
 
 static coroutine_fn int vhdx_co_writev(BlockDriverState *bs, int64_t sector_num,
@@ -1148,7 +1078,7 @@ static coroutine_fn int vhdx_co_writev(BlockDriverState *bs, int64_t sector_num,
      * data write guid must be updated in the header */
     if (s->first_visible_write) {
         s->first_visible_write = false;
-        vhdx_update_headers(bs, s, true);
+        vhdx_update_headers(bs, s, true, NULL);
     }
 
     while (nb_sectors > 0) {
@@ -1243,6 +1173,7 @@ static void vhdx_close(BlockDriverState *bs)
     qemu_vfree(s->headers[1]);
     qemu_vfree(s->bat);
     qemu_vfree(s->parent_entries);
+    qemu_vfree(s->log.hdr);
 }
 
 static BlockDriver bdrv_vhdx = {

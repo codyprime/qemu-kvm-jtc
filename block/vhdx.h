@@ -116,7 +116,7 @@ typedef struct QEMU_PACKED VHDXHeader {
                                            valid. */
     uint16_t    log_version;            /* version of the log format. Mustn't be
                                            zero, unless log_guid is also zero */
-    uint16_t    version;                /* version of th evhdx file.  Currently,
+    uint16_t    version;                /* version of the vhdx file.  Currently,
                                            only supported version is "1" */
     uint32_t    log_length;             /* length of the log.  Must be multiple
                                            of 1MB */
@@ -151,7 +151,10 @@ typedef struct QEMU_PACKED VHDXRegionTableEntry {
 
 
 /* ---- LOG ENTRY STRUCTURES ---- */
+#define VHDX_LOG_MIN_SIZE (1024*1024)
+#define VHDX_LOG_SECTOR_SIZE 4096
 #define VHDX_LOG_HDR_SIZE 64
+#define VHDX_LOG_SIGNATURE 0x65676f6c
 typedef struct QEMU_PACKED VHDXLogEntryHeader {
     uint32_t    signature;              /* "loge" in ASCII */
     uint32_t    checksum;               /* CRC-32C hash of the 64KB table */
@@ -174,7 +177,8 @@ typedef struct QEMU_PACKED VHDXLogEntryHeader {
 } VHDXLogEntryHeader;
 
 #define VHDX_LOG_DESC_SIZE 32
-
+#define VHDX_LOG_DESC_SIGNATURE 0x63736564
+#define VHDX_LOG_ZERO_SIGNATURE 0x6f72657a
 typedef struct QEMU_PACKED VHDXLogDescriptor {
     uint32_t    signature;              /* "zero" or "desc" in ASCII */
     union  {
@@ -194,6 +198,7 @@ typedef struct QEMU_PACKED VHDXLogDescriptor {
                                            vhdx_log_entry_header */
 } VHDXLogDescriptor;
 
+#define VHDX_LOG_DATA_SIGNATURE 0x61746164
 typedef struct QEMU_PACKED VHDXLogDataSector {
     uint32_t    data_signature;         /* "data" in ASCII */
     uint32_t    sequence_high;          /* 4 MSB of 8 byte sequence_number */
@@ -318,13 +323,15 @@ typedef struct VHDXMetadataEntries {
     uint16_t present;
 } VHDXMetadataEntries;
 
-#define VHDX_LOG_SECTOR_SIZE (4096)
 typedef struct VHDXLogEntries {
     uint64_t offset;
     uint64_t length;
-    uint32_t head;
+    uint32_t write;
+    uint32_t read;
+    VHDXLogEntryHeader *hdr;
+    void *desc_buffer;
+    uint64_t sequence;
     uint32_t tail;
-    vhdx_log_entry_header *hdr;
 } VHDXLogEntries;
 
 typedef struct VHDXLogEntryInfo {
@@ -373,24 +380,47 @@ typedef struct BDRVVHDXState {
 
 } BDRVVHDXState;
 
+void vhdx_guid_generate(MSGUID *guid);
+
+int vhdx_update_headers(BlockDriverState *bs, BDRVVHDXState *s, bool rw,
+                        MSGUID *log_guid);
+
+uint32_t vhdx_update_checksum(uint8_t *buf, size_t size, int crc_offset);
 uint32_t vhdx_checksum_calc(uint32_t crc, uint8_t *buf, size_t size,
                             int crc_offset);
 
 bool vhdx_checksum_is_valid(uint8_t *buf, size_t size, int crc_offset);
 
+int vhdx_parse_log(BlockDriverState *bs, BDRVVHDXState *s);
 
-static void leguid_to_cpus(MSGUID *guid)
+int vhdx_log_write_and_flush(BlockDriverState *bs, BDRVVHDXState *s,
+                             void *data, uint32_t length, uint64_t offset);
+
+static inline void leguid_to_cpus(MSGUID *guid)
 {
     le32_to_cpus(&guid->data1);
     le16_to_cpus(&guid->data2);
     le16_to_cpus(&guid->data3);
 }
 
-static void cpu_to_leguids(MSGUID *guid)
+static inline void cpu_to_leguids(MSGUID *guid)
 {
     cpu_to_le32s(&guid->data1);
     cpu_to_le16s(&guid->data2);
     cpu_to_le16s(&guid->data3);
 }
+
+void vhdx_header_le_import(VHDXHeader *h);
+void vhdx_header_le_export(VHDXHeader *orig_h, VHDXHeader *new_h);
+void vhdx_log_desc_le_import(VHDXLogDescriptor *d);
+void vhdx_log_desc_le_export(VHDXLogDescriptor *d);
+void vhdx_log_data_le_export(VHDXLogDataSector *d);
+void vhdx_log_entry_hdr_le_import(VHDXLogEntryHeader *hdr);
+void vhdx_log_entry_hdr_le_export(VHDXLogEntryHeader *hdr);
+
+
+
+
+
 
 #endif
