@@ -324,7 +324,7 @@ typedef struct VHDXLogEntries {
     uint64_t length;
     uint32_t head;
     uint32_t tail;
-    vhdx_log_entry_header *hdr;
+    VHDXLogEntryHeader *hdr;
 } VHDXLogEntries;
 
 typedef struct VHDXLogEntryInfo {
@@ -378,6 +378,7 @@ uint32_t vhdx_checksum_calc(uint32_t crc, uint8_t *buf, size_t size,
 
 bool vhdx_checksum_is_valid(uint8_t *buf, size_t size, int crc_offset);
 
+int vhdx_parse_log(BlockDriverState *bs, BDRVVHDXState *s);
 
 static void leguid_to_cpus(MSGUID *guid)
 {
