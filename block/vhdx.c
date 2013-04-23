@@ -26,6 +26,53 @@
 /* Several metadata and region table data entries are identified by
  * guids in  a MS-specific GUID format. */
 
+static void vhdx_print_header(VHDXHeader *h)
+{
+    int i;
+
+    printf("\n===== VHDX Header ==========================================\n");
+    printf("signature: 0x%" PRIx32 "\n", h->signature);
+    printf("checksum: 0x%" PRIx32 "\n", h->checksum);
+    printf("sequence_number: 0x%" PRIx64 "\n", h->sequence_number);
+    printf("file_write_guid: %08" PRIx32 "-%04" PRIx16 "-%04" PRIx16 "-",
+            h->file_write_guid.data1,
+            h->file_write_guid.data2,
+            h->file_write_guid.data3);
+    printf("%02" PRIx8 "%02" PRIx8 "-", h->file_write_guid.data4[0],
+                                        h->file_write_guid.data4[1]);
+    for (i = 2; i < 8; i++) {
+        printf("%02" PRIx8, h->file_write_guid.data4[i]);
+    }
+    printf("\n");
+    printf("data_write_guid: %08" PRIx32 "-%04" PRIx16 "-%04" PRIx16 "-",
+            h->data_write_guid.data1,
+            h->data_write_guid.data2,
+            h->data_write_guid.data3);
+    printf("%02" PRIx8 "%02" PRIx8 "-", h->data_write_guid.data4[0],
+                                        h->data_write_guid.data4[1]);
+    for (i = 2; i < 8; i++) {
+        printf("%02" PRIx8, h->data_write_guid.data4[i]);
+    }
+    printf("\n");
+    printf("log_guid:        %08" PRIx32 "-%04" PRIx16 "-%04" PRIx16 "-",
+            h->log_guid.data1,
+            h->log_guid.data2,
+            h->log_guid.data3);
+    printf("%02" PRIx8 "%02" PRIx8 "-", h->log_guid.data4[0],
+                                        h->log_guid.data4[1]);
+    for (i = 2; i < 8; i++) {
+        printf("%02" PRIx8, h->log_guid.data4[i]);
+    }
+    printf("\n");
+
+    printf("log_version: 0x%" PRIx16 "\n", h->log_version);
+    printf("version: 0x%" PRIx16 "\n", h->version);
+    printf("log_length: 0x%" PRIx32 "\n", h->log_length);
+    printf("log_offset: 0x%" PRIx64 "\n", h->log_offset);
+    printf("============================================================\n\n");
+}
+
+
 
 /* ------- Known Region Table GUIDs ---------------------- */
 static const MSGUID bat_guid =      { .data1 = 0x2dc27766,
@@ -164,7 +211,6 @@ typedef struct BDRVVHDXState {
     VHDXParentLocatorEntry *parent_entries;
 
 } BDRVVHDXState;
-
 /* Calculates new checksum.
  *
  * Zero is substituted during crc calculation for the original crc field
@@ -396,6 +442,9 @@ static int vhdx_update_headers(BlockDriverState *bs, BDRVVHDXState *s, bool rw)
         return ret;
     }
     ret = vhdx_update_header(bs, s, rw);
+
+    vhdx_print_header(s->headers[0]);
+    vhdx_print_header(s->headers[1]);
     return ret;
 }
 
