@@ -308,4 +308,29 @@ typedef struct QEMU_PACKED VHDXParentLocatorEntry {
 
 /* ----- END VHDX SPECIFICATION STRUCTURES ---- */
 
+
+uint32_t vhdx_checksum_calc(uint32_t crc, uint8_t *buf, size_t size,
+                            int crc_offset);
+
+bool vhdx_checksum_is_valid(uint8_t *buf, size_t size, int crc_offset);
+
+
+static void leguid_to_cpus(ms_guid *guid)
+{
+    le32_to_cpus(&guid->data1);
+    le16_to_cpus(&guid->data2);
+    le16_to_cpus(&guid->data3);
+}
+
+static void cpu_to_leguids(ms_guid *guid)
+{
+    cpu_to_le32s(&guid->data1);
+    cpu_to_le16s(&guid->data2);
+    cpu_to_le16s(&guid->data3);
+}
+
+
+
+
+
 #endif
