@@ -322,4 +322,11 @@ static void leguid_to_cpus(MSGUID *guid)
     le16_to_cpus(&guid->data3);
 }
 
+static void cpu_to_leguids(MSGUID *guid)
+{
+    cpu_to_le32s(&guid->data1);
+    cpu_to_le16s(&guid->data2);
+    cpu_to_le16s(&guid->data3);
+}
+
 #endif
