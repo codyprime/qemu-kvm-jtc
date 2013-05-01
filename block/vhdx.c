@@ -874,6 +874,7 @@ static int vhdx_open(BlockDriverState *bs, QDict *options, int flags)
 
     s->bat = NULL;
     s->first_visible_write = true;
+    s->log.head = s->log.tail = 0;
 
     qemu_co_mutex_init(&s->lock);
 
