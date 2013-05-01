@@ -318,6 +318,20 @@ typedef struct VHDXMetadataEntries {
     uint16_t present;
 } VHDXMetadataEntries;
 
+#define VHDX_LOG_SECTOR_SIZE (4096)
+typedef struct VHDXLogEntries {
+    uint64_t offset;
+    uint64_t length;
+    uint32_t head;
+    uint32_t tail;
+    vhdx_log_entry_header *hdr;
+} VHDXLogEntries;
+
+typedef struct VHDXLogEntryInfo {
+    uint64_t sector_start;
+    uint32_t desc_count;
+} VHDXLogEntryInfo;
+
 typedef struct BDRVVHDXState {
     CoMutex lock;
 
@@ -351,6 +365,8 @@ typedef struct BDRVVHDXState {
 
     bool first_visible_write;
     MSGUID session_guid;
+
+    VHDXLogEntries log;
 
     VHDXParentLocatorHeader parent_header;
     VHDXParentLocatorEntry *parent_entries;
