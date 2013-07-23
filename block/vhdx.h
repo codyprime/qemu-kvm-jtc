@@ -151,7 +151,10 @@ typedef struct QEMU_PACKED VHDXRegionTableEntry {
 
 
 /* ---- LOG ENTRY STRUCTURES ---- */
+#define VHDX_LOG_MIN_SIZE (1024*1024)
+#define VHDX_LOG_SECTOR_SIZE 4096
 #define VHDX_LOG_HDR_SIZE 64
+#define VHDX_LOG_SIGNATURE 0x65676f6c
 typedef struct QEMU_PACKED VHDXLogEntryHeader {
     uint32_t    signature;              /* "loge" in ASCII */
     uint32_t    checksum;               /* CRC-32C hash of the 64KB table */
@@ -174,7 +177,8 @@ typedef struct QEMU_PACKED VHDXLogEntryHeader {
 } VHDXLogEntryHeader;
 
 #define VHDX_LOG_DESC_SIZE 32
-
+#define VHDX_LOG_DESC_SIGNATURE 0x63736564
+#define VHDX_LOG_ZERO_SIGNATURE 0x6f72657a
 typedef struct QEMU_PACKED VHDXLogDescriptor {
     uint32_t    signature;              /* "zero" or "desc" in ASCII */
     union  {
@@ -194,6 +198,7 @@ typedef struct QEMU_PACKED VHDXLogDescriptor {
                                            vhdx_log_entry_header */
 } VHDXLogDescriptor;
 
+#define VHDX_LOG_DATA_SIGNATURE 0x61746164
 typedef struct QEMU_PACKED VHDXLogDataSector {
     uint32_t    data_signature;         /* "data" in ASCII */
     uint32_t    sequence_high;          /* 4 MSB of 8 byte sequence_number */
@@ -318,6 +323,18 @@ typedef struct VHDXMetadataEntries {
     uint16_t present;
 } VHDXMetadataEntries;
 
+typedef struct VHDXLogEntries {
+    uint64_t offset;
+    uint64_t length;
+    uint32_t head;
+    uint32_t tail;
+} VHDXLogEntries;
+
+typedef struct VHDXLogEntryInfo {
+    uint64_t sector_start;
+    uint32_t desc_count;
+} VHDXLogEntryInfo;
+
 typedef struct BDRVVHDXState {
     CoMutex lock;
 
@@ -350,6 +367,8 @@ typedef struct BDRVVHDXState {
     uint64_t bat_offset;
 
     MSGUID session_guid;
+
+    VHDXLogEntries log;
 
     VHDXParentLocatorHeader parent_header;
     VHDXParentLocatorEntry *parent_entries;
