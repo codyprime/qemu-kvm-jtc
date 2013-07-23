@@ -366,6 +366,7 @@ typedef struct BDRVVHDXState {
     VHDXBatEntry *bat;
     uint64_t bat_offset;
 
+    bool first_visible_write;
     MSGUID session_guid;
 
     VHDXLogEntries log;
@@ -376,6 +377,9 @@ typedef struct BDRVVHDXState {
 } BDRVVHDXState;
 
 void vhdx_guid_generate(MSGUID *guid);
+
+int vhdx_update_headers(BlockDriverState *bs, BDRVVHDXState *s, bool rw,
+                        MSGUID *log_guid);
 
 uint32_t vhdx_update_checksum(uint8_t *buf, size_t size, int crc_offset);
 uint32_t vhdx_checksum_calc(uint32_t crc, uint8_t *buf, size_t size,
@@ -406,8 +410,7 @@ void vhdx_log_data_le_export(VHDXLogDataSector *d);
 void vhdx_log_entry_hdr_le_import(VHDXLogEntryHeader *hdr);
 void vhdx_log_entry_hdr_le_export(VHDXLogEntryHeader *hdr);
 
-
-
+void vhdx_user_visible_write(BlockDriverState *bs, BDRVVHDXState *s);
 
 
 
