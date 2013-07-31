@@ -280,7 +280,7 @@ static int vhdx_update_header(BlockDriverState *bs, BDRVVHDXState *s, bool rw,
     /* we can't assume the extra reserved bytes are 0 */
     ret = bdrv_pread(bs->file, header_offset, buffer, VHDX_HEADER_SIZE);
     if (ret < 0) {
-        goto fail;
+        goto exit;
     }
     /* overwrite the actual VHDXHeader portion */
     memcpy(buffer, inactive_header, sizeof(VHDXHeader));
@@ -290,7 +290,7 @@ static int vhdx_update_header(BlockDriverState *bs, BDRVVHDXState *s, bool rw,
     bdrv_pwrite_sync(bs->file, header_offset, &header_le, sizeof(VHDXHeader));
     s->curr_header = hdr_idx;
 
-fail:
+exit:
     qemu_vfree(buffer);
     return ret;
 }
