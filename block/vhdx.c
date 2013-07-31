@@ -976,9 +976,7 @@ static int vhdx_allocate_block(BlockDriverState *bs, BDRVVHDXState *s,
     *new_offset = bdrv_getlength(bs->file);
 
     /* per the spec, the address for a block is in units of 1MB */
-    if (*new_offset % (1024*1024)) {
-        *new_offset = ((*new_offset >> 20) + 1) << 20;  /* round up to 1MB */
-    }
+    *new_offset = ROUND_UP(*new_offset, 1024*1024);
 
     return bdrv_truncate(bs->file, *new_offset + s->block_size);
 }
