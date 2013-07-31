@@ -73,7 +73,7 @@ static int vhdx_log_peek_hdr(BlockDriverState *bs, VHDXLogEntries *log,
 
     assert(hdr != NULL);
 
-    /* peek is only support on sector boundaries */
+    /* peek is only supported on sector boundaries */
     if (log->read % VHDX_LOG_SECTOR_SIZE) {
         ret = -EFAULT;
         goto exit;
@@ -261,13 +261,13 @@ exit:
  *
  * Validation consists of:
  *      1. Making sure the sequence numbers matches the entry header
- *      2. Verifying a valid signature ('zero' or desc' for descriptors)
+ *      2. Verifying a valid signature ('zero' or 'desc' for descriptors)
  *      3. File offset field is a multiple of 4KB
  *      4. If a data descriptor, the corresponding data sector
  *         has its signature ('data') and matching sequence number
  *
- * 'desc' is the data buffer containing the descriptor
- * hdr is the log entry header
+ * @desc: the data buffer containing the descriptor
+ * @hdr:  the log entry header
  *
  * Returns true if valid
  */
@@ -431,14 +431,13 @@ static int vhdx_log_flush_desc(BlockDriverState *bs, VHDXLogDescriptor *desc,
 
         /* Each data sector is in total 4096 bytes, however the first
          * 8 bytes, and last 4 bytes, are located in the descriptor */
-        memcpy(buffer, &desc->leading_bytes, sizeof(desc->leading_bytes));
-        offset += sizeof(desc->leading_bytes);
+        memcpy(buffer, &desc->leading_bytes, 8);
+        offset += 8;
 
         memcpy(buffer+offset, data->data, 4084);
         offset += 4084;
 
-        memcpy(buffer+offset, &desc->trailing_bytes,
-               sizeof(desc->trailing_bytes));
+        memcpy(buffer+offset, &desc->trailing_bytes, 4);
 
     } else if (!memcmp(&desc->signature, "zero", 4)) {
         /* write 'count' sectors of sector */
@@ -749,8 +748,6 @@ int vhdx_parse_log(BlockDriverState *bs, BDRVVHDXState *s)
         goto exit;
     }
 
-
-
     if (hdr->log_length == 0) {
         goto exit;
     }
@@ -785,6 +782,7 @@ static void vhdx_log_raw_to_le_sector(VHDXLogDescriptor *desc,
                                       VHDXLogDataSector *sector, void *data,
                                       uint64_t seq)
 {
+    /* 8 + 4084 + 4 = 4096, 1 log sector */
     memcpy(&desc->leading_bytes, data, 8);
     data += 8;
     cpu_to_le64s(&desc->leading_bytes);
