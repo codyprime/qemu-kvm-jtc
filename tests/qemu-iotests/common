@@ -133,6 +133,7 @@ check options
     -qed                test qed
     -vdi                test vdi
     -vpc                test vpc
+    -vhdx               test vhdx
     -vmdk               test vmdk
     -rbd                test rbd
     -sheepdog           test sheepdog
@@ -192,6 +193,11 @@ testlist options
 
         -vpc)
             IMGFMT=vpc
+            xpand=false
+            ;;
+
+        -vhdx)
+            IMGFMT=vhdx
             xpand=false
             ;;
 
