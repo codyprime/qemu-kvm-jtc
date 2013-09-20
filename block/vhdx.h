@@ -18,6 +18,9 @@
 #ifndef BLOCK_VHDX_H
 #define BLOCK_VHDX_H
 
+/* This enables the debug functions in vhdx-debug.c */
+#define VHDX_DEBUG 0
+
 #define KiB              (1 * 1024)
 #define MiB            (KiB * 1024)
 #define GiB            (MiB * 1024)
@@ -443,5 +446,12 @@ void vhdx_metadata_header_le_export(VHDXMetadataTableHeader *hdr);
 void vhdx_metadata_entry_le_import(VHDXMetadataTableEntry *e);
 void vhdx_metadata_entry_le_export(VHDXMetadataTableEntry *e);
 int vhdx_user_visible_write(BlockDriverState *bs, BDRVVHDXState *s);
+
+#if (VHDX_DEBUG == 1)
+void vhdx_print_header(VHDXHeader *h);
+void vhdx_print_guid(MSGUID *guid);
+void vhdx_log_hdr_print(VHDXLogEntryHeader *hdr, BDRVVHDXState *s);
+#endif
+
 
 #endif
