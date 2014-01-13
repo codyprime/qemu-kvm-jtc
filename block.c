@@ -1876,10 +1876,10 @@ int bdrv_check(BlockDriverState *bs, BdrvCheckResult *res, BdrvCheckMode fix)
 int bdrv_commit(BlockDriverState *bs)
 {
     BlockDriver *drv = bs->drv;
-    int64_t sector, total_sectors;
+    int64_t sector, total_sectors, length, backing_length;
     int n, ro, open_flags;
     int ret = 0;
-    uint8_t *buf;
+    uint8_t *buf = NULL;
     char filename[PATH_MAX];
 
     if (!drv)
@@ -1904,7 +1904,24 @@ int bdrv_commit(BlockDriverState *bs)
         }
     }
 
-    total_sectors = bdrv_getlength(bs) >> BDRV_SECTOR_BITS;
+    length = bdrv_getlength(bs);
+    backing_length = bdrv_getlength(bs->backing_hd);
+
+    if (length < 0 || backing_length < 0) {
+        goto ro_cleanup;
+    }
+
+    /* If our top snapshot is larger than the backing file image,
+     * grow the backing file image if possible.  If not possible,
+     * we must return an error */
+    if (length > backing_length) {
+        ret = bdrv_truncate(bs->backing_hd, length);
+        if (ret < 0) {
+            goto ro_cleanup;
+        }
+    }
+
+    total_sectors = length >> BDRV_SECTOR_BITS;
     buf = g_malloc(COMMIT_BUF_SECTORS * BDRV_SECTOR_SIZE);
 
     for (sector = 0; sector < total_sectors; sector += n) {
