@@ -2138,6 +2138,14 @@ void qmp_drive_mirror(const char *device, const char *target,
         return;
     }
 
+    /* Don't allow attempting to mirror into an image file
+     * already in our BDS chain somewhere */
+
+    if (bdrv_find_backing_image(bs, target)) {
+        error_setg(errp, "Target '%s' already exists in chain\n", target);
+        return;
+    }
+
     if ((sync == MIRROR_SYNC_MODE_FULL || !source)
         && mode != NEW_IMAGE_MODE_EXISTING)
     {
