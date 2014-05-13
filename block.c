@@ -842,12 +842,26 @@ static int bdrv_open_flags(BlockDriverState *bs, int flags)
     return open_flags;
 }
 
+#define GEN_NODE_NAME_PREFIX    "__qemu##"
+#define GEN_NODE_NAME_MAX_LEN   (sizeof(GEN_NODE_NAME_PREFIX) + 8 + 8)
 static void bdrv_assign_node_name(BlockDriverState *bs,
                                   const char *node_name,
                                   Error **errp)
 {
+    char gen_node_name[GEN_NODE_NAME_MAX_LEN];
+    static uint32_t counter; /* simple counter to guarantee uniqueness */
+
+    /* if node_name is NULL, auto-generate a node name */
     if (!node_name) {
-        return;
+        int len;
+        snprintf(gen_node_name, GEN_NODE_NAME_MAX_LEN,
+                 "%s%08x", GEN_NODE_NAME_PREFIX, counter++);
+        len = strlen(gen_node_name);
+        while (len < GEN_NODE_NAME_MAX_LEN - 1) {
+            gen_node_name[len++] = g_random_int_range('A', 'Z');
+        }
+        gen_node_name[GEN_NODE_NAME_MAX_LEN - 1] = '\0';
+        node_name = gen_node_name;
     }
 
     /* empty string node name is invalid */
