@@ -3734,6 +3734,15 @@ BlockDriverState *bdrv_lookup_bs(const char *device,
     return NULL;
 }
 
+bool bdrv_is_in_chain(BlockDriverState *top, BlockDriverState *base)
+{
+    while (top && top != base) {
+        top = top->backing_hd;
+    }
+
+    return top != NULL;
+}
+
 BlockDriverState *bdrv_next(BlockDriverState *bs)
 {
     if (!bs) {
