@@ -2097,14 +2097,30 @@
 # Live commit of data from overlay image nodes into backing nodes - i.e.,
 # writes data between 'top' and 'base' into 'base'.
 #
-# @device:  the name of the device
+# @device:        #optional The name of the device.  Optional only if
+#                           node-names are used for both base and top
 #
-# @base:   #optional The file name of the backing image to write data into.
-#                    If not specified, this is the deepest backing image
+# For 'base', either @base or @base-node-name may be set but not both. If
+# neither is specified, this is the deepest backing image
 #
-# @top:    #optional The file name of the backing image within the image chain,
-#                    which contains the topmost data to be committed down. If
-#                    not specified, this is the active layer.
+# @base:          #optional The file name of the backing image to write data
+#                           into.
+#
+# @base-node-name #optional The name of the block driver state node of the
+#                           backing image to write data into.
+#                           (Since 2.1)
+#
+# For 'top', either @top or @top-node-name must be set but not both. If
+# neither is specified, this is the active layer
+#
+# @top:           #optional The file name of the backing image within the image
+#                           chain, which contains the topmost data to be
+#                           committed down.
+#
+# @top-node-name: #optional The block driver state node name of the backing
+#                           image within the image chain, which contains the
+#                           topmost data to be committed down.
+#                           (Since 2.1)
 #
 #                    If top == base, that is an error.
 #                    If top == active, the job will not be completed by itself,
@@ -2123,17 +2139,19 @@
 #
 # Returns: Nothing on success
 #          If commit or stream is already active on this device, DeviceInUse
-#          If @device does not exist, DeviceNotFound
+#          If @device does not exist or cannot be determined, DeviceNotFound
 #          If image commit is not supported by this device, NotSupported
-#          If @base or @top is invalid, a generic error is returned
+#          If @base, @top, @base-node-name, @top-node-name invalid, GenericError
 #          If @speed is invalid, InvalidParameter
+#          If both @base and @base-node-name are specified, GenericError
+#          If both @top and @top-node-name are specified, GenericError
 #
 # Since: 1.3
 #
 ##
 { 'command': 'block-commit',
-  'data': { 'device': 'str', '*base': 'str', '*top': 'str',
-            '*speed': 'int' } }
+  'data': { '*device': 'str', '*base': 'str', '*base-node-name': 'str',
+            '*top': 'str', '*top-node-name': 'str', '*speed': 'int' } }
 
 ##
 # @drive-backup
