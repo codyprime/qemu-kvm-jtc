@@ -985,7 +985,7 @@ EQMP
 
     {
         .name       = "block-commit",
-        .args_type  = "device:B,base:s?,base-node-name:s?,top:s?,top-node-name:s?,speed:o?",
+        .args_type  = "device:B,base:s?,base-node-name:s?,top:s?,top-node-name:s?,backing-file:s?,speed:o?",
         .mhandler.cmd_new = qmp_marshal_input_block_commit,
     },
 
@@ -1019,6 +1019,18 @@ For 'top', either top or top-node-name must be set but not both.
                    image within the image chain, which contains the
                    topmost data to be committed down.
                    (json-string, optional) (Since 2.1)
+
+- "backing-file": The backing file string to write into the overlay
+                  image of 'top'.  If 'top' is the active layer,
+                  specifying a backing file string is an error. This
+                  backing file string is only written into the the
+                  image file metadata - internal structures inside
+                  QEMU are not updated,  and the string is not validated.
+                  If not specified, QEMU will automatically determine
+                  the backing file string to use.  Care should be taken
+                  when specifying the string, to specify a valid filename
+                  or protocol.
+                  (json-string, optional) (Since 2.1)
 
           If top == base, that is an error.
           If top == active, the job will not be completed by itself,
