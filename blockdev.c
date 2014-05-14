@@ -1868,7 +1868,10 @@ void qmp_block_stream(const char *device, bool has_base,
 }
 
 void qmp_block_commit(const char *device,
-                      bool has_base, const char *base, const char *top,
+                      bool has_base, const char *base,
+                      bool has_base_node_name, const char *base_node_name,
+                      bool has_top, const char *top,
+                      bool has_top_node_name, const char *top_node_name,
                       bool has_speed, int64_t speed,
                       Error **errp)
 {
@@ -1887,6 +1890,15 @@ void qmp_block_commit(const char *device,
     /* drain all i/o before commits */
     bdrv_drain_all();
 
+    if (has_base && has_base_node_name) {
+        error_setg(errp, "'base' and 'base-node-name' are mutually exclusive");
+        return;
+    }
+    if (has_top && has_top_node_name) {
+        error_setg(errp, "'top' and 'top-node-name' are mutually exclusive");
+        return;
+    }
+
     bs = bdrv_find(device);
     if (!bs) {
         error_set(errp, QERR_DEVICE_NOT_FOUND, device);
@@ -1896,7 +1908,14 @@ void qmp_block_commit(const char *device,
     /* default top_bs is the active layer */
     top_bs = bs;
 
-    if (top) {
+    /* Find the 'top' image file for the commit */
+    if (has_top_node_name) {
+        top_bs = bdrv_lookup_bs(NULL, top_node_name, &local_err);
+        if (local_err) {
+            error_propagate(errp, local_err);
+            return;
+        }
+    } else if (has_top && top) {
         if (strcmp(bs->filename, top) != 0) {
             top_bs = bdrv_find_backing_image(bs, top);
         }
@@ -1907,7 +1926,14 @@ void qmp_block_commit(const char *device,
         return;
     }
 
-    if (has_base && base) {
+    /* Find the 'base' image file for the commit */
+    if (has_base_node_name) {
+        base_bs = bdrv_lookup_bs(NULL, base_node_name, &local_err);
+        if (local_err) {
+            error_propagate(errp, local_err);
+            return;
+        }
+    } else if (has_base && base) {
         base_bs = bdrv_find_backing_image(top_bs, base);
     } else {
         base_bs = bdrv_find_base(top_bs);
@@ -1915,6 +1941,12 @@ void qmp_block_commit(const char *device,
 
     if (base_bs == NULL) {
         error_set(errp, QERR_BASE_NOT_FOUND, base ? base : "NULL");
+        return;
+    }
+
+    /* Verify that 'base' is in the same chain as 'top' */
+    if (!bdrv_is_in_chain(top_bs, base_bs)) {
+        error_setg(errp, "'base' and 'top' are not in the same chain");
         return;
     }
 
