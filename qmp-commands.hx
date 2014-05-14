@@ -985,7 +985,7 @@ EQMP
 
     {
         .name       = "block-commit",
-        .args_type  = "device:B,base:s?,top:s?,speed:o?",
+        .args_type  = "device:B?,base:s?,base-node-name:s?,top:s?,top-node-name:s?,speed:o?",
         .mhandler.cmd_new = qmp_marshal_input_block_commit,
     },
 
@@ -998,13 +998,30 @@ data between 'top' and 'base' into 'base'.
 
 Arguments:
 
-- "device": The device's ID, must be unique (json-string)
-- "base": The file name of the backing image to write data into.
-          If not specified, this is the deepest backing image
-          (json-string, optional)
-- "top":  The file name of the backing image within the image chain,
-          which contains the topmost data to be committed down. If
-          not specified, this is the active layer. (json-string, optional)
+- "device":         The device's ID, must be unique (json-string, optional)
+                    Optional only if node-names are used to identify
+                    "top" and "base"
+
+For 'base', either base or base-node-name may be set but not both. If
+neither is specified, this is the deepest backing image
+
+- "base":           The file name of the backing image to write data into.
+                    (json-string, optional)
+- "base-node-name": The name of the block driver state node of the
+                    backing image to write data into.
+                    (json-string, optional) (Since 2.1)
+
+For 'top', either top or top-node-name must be set but not both. If
+neither is specified, this is the active layer
+
+- "top":            The file name of the backing image within the image chain,
+                    which contains the topmost data to be committed down.
+                    (json-string, optional)
+
+- "top-node-name":  The block driver state node name of the backing
+                    image within the image chain, which contains the
+                    topmost data to be committed down.
+                    (json-string, optional) (Since 2.1)
 
           If top == base, that is an error.
           If top == active, the job will not be completed by itself,
