@@ -1912,7 +1912,8 @@ void qmp_block_stream(const char *device, bool has_base,
 }
 
 void qmp_block_commit(const char *device,
-                      bool has_base, const char *base, const char *top,
+                      bool has_base, const char *base,
+                      bool has_top, const char *top,
                       bool has_speed, int64_t speed,
                       Error **errp)
 {
