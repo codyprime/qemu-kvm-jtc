@@ -1911,7 +1911,8 @@ void qmp_block_stream(const char *device, bool has_base,
 }
 
 void qmp_block_commit(const char *device,
-                      bool has_base, const char *base, const char *top,
+                      bool has_base, const char *base,
+                      bool has_top, const char *top,
                       bool has_speed, int64_t speed,
                       Error **errp)
 {
@@ -1943,7 +1944,7 @@ void qmp_block_commit(const char *device,
     /* default top_bs is the active layer */
     top_bs = bs;
 
-    if (top) {
+    if (has_top && top) {
         if (strcmp(bs->filename, top) != 0) {
             top_bs = bdrv_find_backing_image(bs, top);
         }
