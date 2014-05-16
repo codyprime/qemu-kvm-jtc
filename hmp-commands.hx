@@ -76,7 +76,7 @@ ETEXI
 
     {
         .name       = "block_stream",
-        .args_type  = "device:B,speed:o?,base:s?",
+        .args_type  = "device:B?,speed:o?,base:s?,base-node-name:s?",
         .params     = "device [speed [base]]",
         .help       = "copy data from a backing file into a block device",
         .mhandler.cmd = hmp_block_stream,
