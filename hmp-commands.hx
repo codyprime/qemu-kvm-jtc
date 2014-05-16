@@ -89,6 +89,22 @@ Copy data from a backing file into a block device.
 ETEXI
 
     {
+        .name       = "change_backing_file",
+        .args_type  = "device:s?,image:s?,image_node_name:s?,backing_file:s",
+        .params     = "[device image] [image_node_name] backing_file",
+        .help       = "change the backing file of an image file",
+        .mhandler.cmd = hmp_change_backing_file,
+    },
+
+STEXI
+@item change_backing_file
+@findex change_backing_file
+Chaning the backing file of an image.  This will change the backing
+file metadata in an image file.  You must specify either 'device' and
+'image', or just 'image-node-name'.
+ETEXI
+
+    {
         .name       = "block_job_set_speed",
         .args_type  = "device:B,speed:o",
         .params     = "device speed",
