@@ -1440,6 +1440,84 @@ Example:
 EQMP
 
     {
+        .name       = "change-backing-file",
+        .args_type  = "device:s?,image:s?,image-node-name:s?,backing-file:s",
+        .mhandler.cmd_new = qmp_marshal_input_change_backing_file,
+    },
+
+SQMP
+change-backing-file
+-------------------
+Since: 2.1
+
+Change the backing file in the image file metadata.  This does not cause QEMU
+to reopen the image file to reparse the backing filename (it may, however,
+perform a reopen to change permissions from r/o -> r/w -> r/o, if needed).
+The new backing file string is written into the image file metadata, and the
+QEMU internal strings are updated.
+
+The image file to perform the operation on can be specified by two different
+methods:
+
+ Method 1: Supply the device name (e.g. 'virtio0'), and optionally the image
+           filename.  This would use arguments "device" and "image".
+
+ Method 2: Supply the node-name of the image to modify, via "image-node-name".
+
+Arguments:
+
+Arguments "image" or "image-node-name" are mutually exclusive.
+
+If "image" is specified, "device" must be specified as well.
+
+Method 1 interface
+--------------------
+- "device":             The name of the device.  If "image" is specified,
+                        then "device" is required.  If "image-node-name" is
+                        specified instead, "device" is optional and used to
+                        validate "image-node-name".
+                        (json-string, optional)
+
+- "image":              The file name of the image to modify.  If omitted,
+                        and "image-node-name" is not supplied, then the
+                        default is the active layer of the chain described
+                        by device.
+                        (json-string, optional)
+
+
+Method 2 interface
+--------------------
+- "image-node-name":    The name of the block driver state node of the
+                        image to modify.  If "device" is specified along
+                        with "image-node-name", then it is used to verify
+                        "image-node-name" is in the chain described by
+                        "device".
+                        (json-string, optional)
+
+
+Common arguments
+--------------------
+- "backing-file":       The string to write as the backing file.  This string is
+                        not validated, so care should be taken when specifying
+                        the string or the image chain may not be able to be
+                        reopened again.
+                        (json-string)
+
+                        If a pathname string is such that it cannot be
+                        resolved by QEMU, that means that subsequent QMP or
+                        HMP commands must use node-names for the image in
+                        question, as filename lookup methods will fail.
+
+
+Returns: Nothing on success
+         If "device" does not exist or cannot be determined, DeviceNotFound
+         If "image" is specified, but not "device, GenericError
+         If both "image" and "image-node-name" are specified, GenericError
+
+
+EQMP
+
+    {
         .name       = "balloon",
         .args_type  = "value:M",
         .mhandler.cmd_new = qmp_marshal_input_balloon,
