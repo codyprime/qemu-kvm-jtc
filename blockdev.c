@@ -2438,6 +2438,124 @@ void qmp_block_job_complete(const char *device, Error **errp)
     block_job_complete(job, errp);
 }
 
+void qmp_change_backing_file(bool has_device, const char *device,
+                             bool has_image, const char *image,
+                             bool has_image_node_name,
+                             const char *image_node_name,
+                             const char *backing_file,
+                             Error **errp)
+{
+    BlockDriverState *bs = NULL;
+    BlockDriverState *image_bs = NULL;
+    Error *local_err = NULL;
+    bool ro;
+    int open_flags;
+    int ret;
+
+    /* validate argument combinations */
+    if (has_image && has_image_node_name) {
+        error_setg(errp, "'image' and 'image-node-name' "
+                         "are mutually exclusive");
+        return;
+    }
+
+    if (has_image && !has_device) {
+        error_setg(errp, "'image' specified, but not 'device'");
+        return;
+    }
+
+    if (!has_image && !has_image_node_name) {
+        error_setg(errp, "either 'image' or 'image-node-name' must be "
+                         "specified");
+        return;
+    }
+
+    /* find the BDS to operate on */
+    if (has_device) {
+        bs = bdrv_find(device);
+        if (!bs) {
+            error_set(errp, QERR_DEVICE_NOT_FOUND, device);
+            return;
+        }
+    }
+
+    if (has_image_node_name) {
+        image_bs = bdrv_lookup_bs(NULL, image_node_name, &local_err);
+        if (local_err) {
+            error_propagate(errp, local_err);
+            return;
+        }
+    }
+
+    if (bs && has_image) {
+        if (!strcmp(bs->filename, image)) {
+            image_bs = bs;
+        } else {
+            image_bs = bdrv_find_backing_image(bs, image);
+        }
+    }
+
+    if (!image_bs) {
+        error_setg(errp, "image file not found");
+        return;
+    }
+
+    bs = bs ?: bdrv_find_active(image_bs);
+    if (!bs) {
+        error_setg(errp, "could not find active layer for '%s'",
+                   image_bs->filename);
+        return;
+    }
+
+    if (bdrv_find_base(image_bs) == image_bs) {
+        error_setg(errp, "not allowing backing file change on an image "
+                         "without a backing file");
+        return;
+    }
+
+    /* even though we are not operating on bs, we need it to
+     * determine if block ops are currently prohibited on the chain */
+    if (bdrv_op_is_blocked(bs, BLOCK_OP_TYPE_CHANGE, errp)) {
+        return;
+    }
+
+    /* final sanity check */
+    if (!bdrv_chain_contains(bs, image_bs)) {
+        error_setg(errp, "'%s' and image file are not in the same chain",
+                   device);
+        return;
+    }
+
+    /* if not r/w, reopen to make r/w */
+    open_flags = image_bs->open_flags;
+    ro = bdrv_is_read_only(image_bs);
+
+    if (ro) {
+        bdrv_reopen(image_bs, open_flags | BDRV_O_RDWR, &local_err);
+        if (local_err) {
+            error_propagate(errp, local_err);
+            return;
+        }
+    }
+
+    ret = bdrv_change_backing_file(image_bs, backing_file,
+                               image_bs->drv ? image_bs->drv->format_name : "");
+
+    if (ret < 0) {
+        error_setg_errno(errp, -ret, "Could not change backing file to '%s'",
+                         backing_file);
+        /* don't exit here, so we can try to restore open flags if
+         * appropriate */
+    }
+
+    if (ro) {
+        bdrv_reopen(image_bs, open_flags, &local_err);
+        if (local_err) {
+            error_propagate(errp, local_err); /* will preserve prior errp */
+        }
+    }
+}
+
 void qmp_blockdev_add(BlockdevOptions *options, Error **errp)
 {
     QmpOutputVisitor *ov = qmp_output_visitor_new();

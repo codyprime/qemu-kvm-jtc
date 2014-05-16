@@ -1183,6 +1183,22 @@ void hmp_block_stream(Monitor *mon, const QDict *qdict)
     hmp_handle_error(mon, &error);
 }
 
+void hmp_change_backing_file(Monitor *mon, const QDict *qdict)
+{
+    Error *error = NULL;
+    const char *device          = qdict_get_str(qdict, "device");
+    const char *image           = qdict_get_str(qdict, "image");
+    const char *image_node_name = qdict_get_str(qdict, "image_node_name");
+    const char *backing_file    = qdict_get_str(qdict, "backing_file");
+
+    qmp_change_backing_file(device != NULL, device,
+                            image != NULL, image,
+                            image_node_name != NULL, image_node_name,
+                            backing_file, &error);
+
+    hmp_handle_error(mon, &error);
+}
+
 void hmp_block_job_set_speed(Monitor *mon, const QDict *qdict)
 {
     Error *error = NULL;
