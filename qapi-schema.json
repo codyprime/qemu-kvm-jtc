@@ -2599,9 +2599,17 @@
 # On successful completion the image file is updated to drop the backing file
 # and the BLOCK_JOB_COMPLETED event is emitted.
 #
-# @device: the device name
+# @device:                  The device name.
 #
-# @base:   #optional the common backing file name
+# For 'base', either @base or @base-node-name may be set but not both. If
+# neither is specified, the entire chain will be streamed into the active image,
+# and the chain will consist of a single image (the current active layer) with
+# no backing file.
+#
+# @base:           #optional the common backing file name
+#
+# @base-node-name: #optional the block driver state node name of the
+#                            common backing file.  (Since 2.1)
 #
 # @speed:  #optional the maximum speed, in bytes per second
 #
@@ -2615,8 +2623,8 @@
 # Since: 1.1
 ##
 { 'command': 'block-stream',
-  'data': { 'device': 'str', '*base': 'str', '*speed': 'int',
-            '*on-error': 'BlockdevOnError' } }
+  'data': { 'device': 'str', '*base': 'str', '*base-node-name': 'str',
+            '*speed': 'int', '*on-error': 'BlockdevOnError' } }
 
 ##
 # @block-job-set-speed:
