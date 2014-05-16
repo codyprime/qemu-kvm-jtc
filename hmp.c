@@ -1168,11 +1168,13 @@ void hmp_block_set_io_throttle(Monitor *mon, const QDict *qdict)
 void hmp_block_stream(Monitor *mon, const QDict *qdict)
 {
     Error *error = NULL;
-    const char *device = qdict_get_str(qdict, "device");
-    const char *base = qdict_get_try_str(qdict, "base");
-    int64_t speed = qdict_get_try_int(qdict, "speed", 0);
+    const char *device         = qdict_get_str(qdict, "device");
+    const char *base           = qdict_get_try_str(qdict, "base");
+    const char *base_node_name = qdict_get_try_str(qdict, "base_node_name");
+    int64_t speed              = qdict_get_try_int(qdict, "speed", 0);
 
-    qmp_block_stream(device, base != NULL, base,
+    qmp_block_stream(device != NULL, device, base != NULL, base,
+                     base_node_name != NULL, base_node_name,
                      qdict_haskey(qdict, "speed"), speed,
                      true, BLOCKDEV_ON_ERROR_REPORT, &error);
 
