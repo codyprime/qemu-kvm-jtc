@@ -1878,17 +1878,26 @@ static void block_job_cb(void *opaque, int ret)
     bdrv_put_ref_bh_schedule(bs);
 }
 
-void qmp_block_stream(const char *device, bool has_base,
-                      const char *base, bool has_speed, int64_t speed,
+void qmp_block_stream(const char *device,
+                      bool has_base, const char *base,
+                      bool has_base_node_name, const char *base_node_name,
+                      bool has_speed, int64_t speed,
                       bool has_on_error, BlockdevOnError on_error,
                       Error **errp)
 {
-    BlockDriverState *bs;
+    BlockDriverState *bs = NULL;
     BlockDriverState *base_bs = NULL;
+    BlockDriverState *tmp_bs;
     Error *local_err = NULL;
+    const char *base_name = NULL;
 
     if (!has_on_error) {
         on_error = BLOCKDEV_ON_ERROR_REPORT;
+    }
+
+    if (has_base && has_base_node_name) {
+        error_setg(errp, "'base' and 'base-node-name' are mutually exclusive");
+        return;
     }
 
     bs = bdrv_find(device);
@@ -1897,19 +1906,40 @@ void qmp_block_stream(const char *device, bool has_base,
         return;
     }
 
+    if (has_base_node_name) {
+        base_bs = bdrv_lookup_bs(NULL, base_node_name, &local_err);
+        if (local_err) {
+            error_propagate(errp, local_err);
+            return;
+        }
+        tmp_bs = bdrv_find_overlay(bs, base_bs);
+        if (tmp_bs) {
+            base_name = tmp_bs->backing_file;
+        }
+    }
+
     if (bdrv_op_is_blocked(bs, BLOCK_OP_TYPE_STREAM, errp)) {
         return;
     }
 
-    if (base) {
+    if (has_base) {
         base_bs = bdrv_find_backing_image(bs, base);
-        if (base_bs == NULL) {
-            error_set(errp, QERR_BASE_NOT_FOUND, base);
-            return;
-        }
+        base_name = base;
     }
 
-    stream_start(bs, base_bs, base, has_speed ? speed : 0,
+    if (base_bs == NULL && (has_base || has_base_node_name)) {
+        error_set(errp, QERR_BASE_NOT_FOUND, base);
+        return;
+    }
+
+    /* Verify that 'base' is in the same chain as 'bs', if 'base' was
+     * specified */
+    if (base_bs && !bdrv_chain_contains(bs, base_bs)) {
+        error_setg(errp, "'device' and 'base' are not in the same chain");
+        return;
+    }
+
+    stream_start(bs, base_bs, base_name, has_speed ? speed : 0,
                  on_error, block_job_cb, bs, &local_err);
     if (local_err) {
         error_propagate(errp, local_err);
