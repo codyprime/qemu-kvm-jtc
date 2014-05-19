@@ -381,6 +381,7 @@ retry:
 }
 
 
+#if defined(LIBISCSI_FEATURE_IOVECTOR)
 static bool iscsi_allocationmap_is_allocated(IscsiLun *iscsilun,
                                              int64_t sector_num, int nb_sectors)
 {
@@ -392,6 +393,7 @@ static bool iscsi_allocationmap_is_allocated(IscsiLun *iscsilun,
     return !(find_next_bit(iscsilun->allocationmap, size,
                            sector_num / iscsilun->cluster_sectors) == size);
 }
+#endif
 
 
 #if defined(LIBISCSI_FEATURE_IOVECTOR)
