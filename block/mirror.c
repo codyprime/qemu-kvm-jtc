@@ -499,6 +499,7 @@ immediate_exit:
              * trigger the unref from the top one */
             BlockDriverState *p = s->base->backing_hd;
             s->base->backing_hd = NULL;
+            bdrv_op_unblock_all(p, s->base->backing_blocker);
             bdrv_unref(p);
         }
     }
