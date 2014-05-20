@@ -1166,10 +1166,12 @@ void hmp_block_stream(Monitor *mon, const QDict *qdict)
     const char *device         = qdict_get_str(qdict, "device");
     const char *base           = qdict_get_try_str(qdict, "base");
     const char *base_node_name = qdict_get_try_str(qdict, "base_node_name");
+    const char *backing_file   = qdict_get_try_str(qdict, "backing_file");
     int64_t speed              = qdict_get_try_int(qdict, "speed", 0);
 
     qmp_block_stream(device != NULL, device, base != NULL, base,
                      base_node_name != NULL, base_node_name,
+                     backing_file != NULL, backing_file,
                      qdict_haskey(qdict, "speed"), speed,
                      true, BLOCKDEV_ON_ERROR_REPORT, &error);
 

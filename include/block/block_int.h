@@ -425,7 +425,7 @@ void bdrv_emit_qmp_error_event(const BlockDriverState *bdrv,
 void stream_start(BlockDriverState *bs, BlockDriverState *base,
                   const char *base_id, int64_t speed, BlockdevOnError on_error,
                   BlockDriverCompletionFunc *cb,
-                  void *opaque, Error **errp);
+                  void *opaque, const char *backing_file, Error **errp);
 
 /**
  * commit_start:

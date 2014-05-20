@@ -1834,6 +1834,7 @@ static void block_job_cb(void *opaque, int ret)
 void qmp_block_stream(bool has_device, const char *device,
                       bool has_base, const char *base,
                       bool has_base_node_name, const char *base_node_name,
+                      bool has_backing_file, const char *backing_file,
                       bool has_speed, int64_t speed,
                       bool has_on_error, BlockdevOnError on_error,
                       Error **errp)
@@ -1902,8 +1903,17 @@ void qmp_block_stream(bool has_device, const char *device,
         return;
     }
 
+    /* if we are streaming from the bottommost base image, then specifying
+     * a backing file does not make sense, and is an error */
+    if (base_bs == NULL && has_backing_file) {
+        error_setg(errp, "backing file specified, but streaming from "
+                         "bottommost base image");
+        return;
+    }
+
     stream_start(bs, base_bs, base_name, has_speed ? speed : 0,
-                 on_error, block_job_cb, bs, &local_err);
+                 on_error, block_job_cb, bs,
+                 has_backing_file ? backing_file : NULL, &local_err);
     if (local_err) {
         error_propagate(errp, local_err);
         return;
