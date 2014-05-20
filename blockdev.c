@@ -1875,6 +1875,7 @@ static void block_job_cb(void *opaque, int ret)
 void qmp_block_stream(const char *device,
                       bool has_base, const char *base,
                       bool has_base_node_name, const char *base_node_name,
+                      bool has_backing_file, const char *backing_file,
                       bool has_speed, int64_t speed,
                       bool has_on_error, BlockdevOnError on_error,
                       Error **errp)
@@ -1926,10 +1927,21 @@ void qmp_block_stream(const char *device,
         return;
     }
 
+    /* backing_file string overrides base bs filename */
+    base_name = has_backing_file ? backing_file : base_name;
+
     /* Verify that 'base' is in the same chain as 'bs', if 'base' was
      * specified */
     if (base_bs && !bdrv_chain_contains(bs, base_bs)) {
         error_setg(errp, "'device' and 'base' are not in the same chain");
+        return;
+    }
+
+    /* if we are streaming the entire chain, the result will have no backing
+     * file, and specifying one is therefore an error */
+    if (base_bs == NULL && has_backing_file) {
+        error_setg(errp, "backing file specified, but streaming the "
+                         "entire chain");
         return;
     }
 
