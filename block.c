@@ -4310,20 +4310,14 @@ int bdrv_get_backing_file_depth(BlockDriverState *bs)
     return 1 + bdrv_get_backing_file_depth(bs->backing_hd);
 }
 
+/* Given a BDS, searches for the base layer.  If
+ * base layer cannot be found, returns NULL */
 BlockDriverState *bdrv_find_base(BlockDriverState *bs)
 {
-    BlockDriverState *curr_bs = NULL;
-
-    if (!bs) {
-        return NULL;
+    while (bs && bs->backing_hd) {
+        bs = bs->backing_hd;
     }
-
-    curr_bs = bs;
-
-    while (curr_bs->backing_hd) {
-        curr_bs = curr_bs->backing_hd;
-    }
-    return curr_bs;
+    return bs;
 }
 
 /**************************************************************/
