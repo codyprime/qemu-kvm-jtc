@@ -1108,12 +1108,22 @@ fail:
     return ret;
 }
 
+void bdrv_set_overlay(BlockDriverState *bs, BlockDriverState *overlay)
+{
+    if (bs) {
+        bs->overlay = overlay;
+    }
+}
+
 void bdrv_set_backing_hd(BlockDriverState *bs, BlockDriverState *backing_hd)
 {
 
     if (bs->backing_hd) {
         assert(bs->backing_blocker);
         bdrv_op_unblock_all(bs->backing_hd, bs->backing_blocker);
+        if (!backing_hd) {
+            bdrv_set_overlay(bs->backing_hd, NULL);
+        }
     } else if (backing_hd) {
         error_setg(&bs->backing_blocker,
                    "device is used as backing hd of '%s'",
@@ -1126,6 +1136,8 @@ void bdrv_set_backing_hd(BlockDriverState *bs, BlockDriverState *backing_hd)
         bs->backing_blocker = NULL;
         goto out;
     }
+    bdrv_set_overlay(backing_hd, bs);
+
     bs->open_flags &= ~BDRV_O_NO_BACKING;
     pstrcpy(bs->backing_file, sizeof(bs->backing_file), backing_hd->filename);
     pstrcpy(bs->backing_format, sizeof(bs->backing_format),
@@ -2085,6 +2097,8 @@ void bdrv_append(BlockDriverState *bs_new, BlockDriverState *bs_top)
     /* The contents of 'tmp' will become bs_top, as we are
      * swapping bs_new and bs_top contents. */
     bdrv_set_backing_hd(bs_top, bs_new);
+    /* make sure that bs_new->backing_hd->overlay points to bs_new */
+    bdrv_set_overlay(bs_new->backing_hd, bs_new);
 }
 
 static void bdrv_delete(BlockDriverState *bs)
