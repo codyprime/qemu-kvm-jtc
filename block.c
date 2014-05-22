@@ -1114,6 +1114,9 @@ void bdrv_set_backing_hd(BlockDriverState *bs, BlockDriverState *backing_hd)
     if (bs->backing_hd) {
         assert(bs->backing_blocker);
         bdrv_op_unblock_all(bs->backing_hd, bs->backing_blocker);
+        if (!backing_hd) {
+            bs->backing_hd->overlay = NULL;
+        }
     } else if (backing_hd) {
         error_setg(&bs->backing_blocker,
                    "device is used as backing hd of '%s'",
@@ -1125,6 +1128,8 @@ void bdrv_set_backing_hd(BlockDriverState *bs, BlockDriverState *backing_hd)
         error_free(bs->backing_blocker);
         goto out;
     }
+    backing_hd->overlay = bs;
+
     bs->open_flags &= ~BDRV_O_NO_BACKING;
     pstrcpy(bs->backing_file, sizeof(bs->backing_file), backing_hd->filename);
     pstrcpy(bs->backing_format, sizeof(bs->backing_format),
@@ -4316,6 +4321,16 @@ BlockDriverState *bdrv_find_base(BlockDriverState *bs)
 {
     while (bs && bs->backing_hd) {
         bs = bs->backing_hd;
+    }
+    return bs;
+}
+
+/* Given a BDS, searches for the active layer.  If
+ * active layer cannot be found, returns NULL */
+BlockDriverState *bdrv_find_active(BlockDriverState *bs)
+{
+    while (bs && bs->overlay) {
+        bs = bs->overlay;
     }
     return bs;
 }

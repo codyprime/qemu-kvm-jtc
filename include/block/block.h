@@ -290,6 +290,7 @@ int bdrv_drop_intermediate(BlockDriverState *active, BlockDriverState *top,
 BlockDriverState *bdrv_find_overlay(BlockDriverState *active,
                                     BlockDriverState *bs);
 BlockDriverState *bdrv_find_base(BlockDriverState *bs);
+BlockDriverState *bdrv_find_active(BlockDriverState *bs);
 
 
 typedef struct BdrvCheckResult {

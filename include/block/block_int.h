@@ -303,6 +303,7 @@ struct BlockDriverState {
     char backing_format[16]; /* if non-zero and backing_file exists */
 
     BlockDriverState *backing_hd;
+    BlockDriverState *overlay;
     BlockDriverState *file;
 
     NotifierList close_notifiers;
