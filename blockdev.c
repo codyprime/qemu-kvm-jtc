@@ -2467,7 +2467,11 @@ void qmp_change_backing_file(bool has_device, const char *device,
         return;
     }
 
-    printf("active layer is %s\n",bs->filename);
+    if (bdrv_find_base(image_bs) == image_bs) {
+        error_setg(errp, "not allowing backing file change on an image "
+                         "without a backing file");
+        return;
+    }
 
     /* even though we are not operating on bs, we need it to
      * determine if block ops are currently prohibited on the chain */
