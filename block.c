@@ -4379,6 +4379,16 @@ BlockDriverState *bdrv_find_base(BlockDriverState *bs)
     return curr_bs;
 }
 
+/* Given a BDS, searches for the active layer.  If
+ * active layer cannot be found, returns NULL */
+BlockDriverState *bdrv_find_active(BlockDriverState *bs)
+{
+    while (bs && bs->overlay) {
+        bs = bs->overlay;
+    }
+    return bs;
+}
+
 /**************************************************************/
 /* async I/Os */
 
