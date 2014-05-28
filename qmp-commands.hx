@@ -983,6 +983,64 @@ EQMP
         .mhandler.cmd_new = qmp_marshal_input_block_stream,
     },
 
+SQMP
+block-stream
+------------
+
+Copy data from a backing file into a block device.
+
+The block streaming operation is performed in the background until the entire
+backing file has been copied.  This command returns immediately once streaming
+has started.  The status of ongoing block streaming operations can be checked
+with query-block-jobs.  The operation can be stopped before it has completed
+using the block-job-cancel command.
+
+If a base file is specified then sectors are not copied from that base file and
+its backing chain.  When streaming completes the image file will have the base
+file as its backing file.  This can be used to stream a subset of the backing
+file chain instead of flattening the entire image.
+
+On successful completion the image file is updated to drop the backing file
+and the BLOCK_JOB_COMPLETED event is emitted.
+
+- "device":         The device name.
+                    (json-string)
+
+For base, either 'base' or 'base-node-name' may be set but not both. If
+neither is specified, the entire chain will be streamed into the active image,
+and the chain will consist of a single image (the current active layer) with
+no backing file.
+
+- "base":           The common backing file name.
+                    (json-string, optional)
+
+- "base-node-name": The block driver state node name of the common backing file.
+                    (json-string, optional) (Since 2.1)
+
+- "backing-file":   The backing file string to write into the active layer.
+                    This filename is not validated.
+
+                    If a pathname string is such that it cannot be resolved by
+                    QEMU, that means that subsequent QMP or HMP commands must
+                    use node-names for the image in question, as filename
+                    lookup methods will fail.
+
+                    If not specified, QEMU will automatically determine the
+                    backing file string to use, or error out if there is no
+                    obvious choice.  Care should be taken when specifying the
+                    string, to specify a valid filename or protocol.
+                    (json-string, optional)
+                    (Since 2.1)
+
+- "speed":          The maximum speed, in bytes per second.
+                    (json-int, optional)
+
+- "on-error":       The action to take on an error (default report).
+                    'stop' and 'enospc' can only be used if the block device
+                    supports io-status (see BlockInfo).
+                    (json-enum, optional) (Since 1.3)
+EQMP
+
     {
         .name       = "block-commit",
         .args_type  = "device:B,base:s?,base-node-name:s?,top:s?,top-node-name:s?,backing-file:s?,speed:o?",
