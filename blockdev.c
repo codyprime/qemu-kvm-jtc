@@ -1964,6 +1964,7 @@ void qmp_block_commit(const char *device,
     BlockDriverState *base_bs = NULL;
     BlockDriverState *top_bs = NULL;
     Error *local_err = NULL;
+    BdrvPerm perm = 0;
     /* This will be part of the QMP command, if/when the
      * BlockdevOnError change for blkmirror makes it in
      */
@@ -2033,6 +2034,37 @@ void qmp_block_commit(const char *device,
         error_set(errp, QERR_BASE_NOT_FOUND, base ? base : "NULL");
         return;
     }
+
+
+    perm = block_job_perm_check(overlay_bs, BDS_OP_GUEST_READ | BDS_OP_HOST_READ);
+    if (perm) {
+        error_setf(errp, "required op already block in chain (0x%x)", perm);
+        return;
+    }
+
+    perm = block_job_perm_obtain(base_bs, BDS_OP_GUEST_READ | BDS_OP_GUEST_WRITE |
+                                          BDS_OP_HOST_WRITE | BDS_OP_CHAIN);
+
+    if (perm) {
+        error_setg(errp, "could not obtain locks for 0x%x", perm);
+        return;
+    }
+
+    perm = block_job_perm_obtain_between(base_bs, top_bs, BDS_OP_GUEST_READ  |
+                                                          BDS_OP_GUEST_WRITE |
+                                                          BDS_OP_CHAIN);
+    if (perm) {
+        error_setg(errp, "could not obtain locks for 0x%x", perm);
+        goto cleanup;
+    }
+
+    perm = block_job_perm_obtain(overlay_bs, BDS_OP_HOST_WRITE |
+                                             BDS_OP_CHAIN);
+    if (perm) {
+        error_setg(errp, "could not obtain locks for 0x%x", perm);
+        goto cleanup;
+    }
+
 
     /* Do not allow attempts to commit an image into itself */
     if (top_bs == base_bs) {
