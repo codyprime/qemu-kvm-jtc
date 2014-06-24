@@ -286,4 +286,16 @@ void block_job_iostatus_reset(BlockJob *job);
 BlockErrorAction block_job_error_action(BlockJob *job, BlockDriverState *bs,
                                         BlockdevOnError on_err,
                                         int is_read, int error);
+
+BdrvPerm block_job_perm_obtain(BlockDriverState *bs, BdrvPerm want);
+
+void block_job_perm_release(BlockDriverState *bs, BdrvPerm release);
+
+BdrvPerm block_job_perm_obtain_between(BlockDriverState *base,
+                                       BlockDriverState *top,
+                                       BdrvPerm want, Error **errp);
+
+void block_job_release_between(BlockDriverState *base,
+                               BlockDriverState *top,
+                               BdrvPerm release, Error **errp);
 #endif

@@ -384,6 +384,8 @@ struct BlockDriverState {
 
     /* The error object in use for blocking operations on backing_hd */
     Error *backing_blocker;
+
+    BdrvPerm job_perms;
 };
 
 int get_tmp_filename(char *filename, int size);

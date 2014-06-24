@@ -557,6 +557,18 @@ typedef enum {
     BLKDBG_EVENT_MAX,
 } BlkDebugEvent;
 
+#define BDS_OP_GUEST_READ   (1 << 0)
+#define BDS_OP_GUEST_WRITE  (1 << 1)
+#define BDS_OP_HOST_READ    (1 << 2)
+#define BDS_OP_HOST_WRITE   (1 << 3)
+#define BDS_OP_CHAIN        (1 << 4)
+#define BDS_OP_ATTR         (1 << 5)
+#define BDS_OP_ALL          (BDS_OP_GUEST_READ | BDS_OP_GUEST_WRITE |\
+                             BDS_OP_HOST_READ  | BDS_OP_HOST_WRITE  |\
+                             BDS_OP_CHAIN      | BDS_OP_ATTR)
+typedef uint64_t BdrvPerm;
+
+
 #define BLKDBG_EVENT(bs, evt) bdrv_debug_event(bs, evt)
 void bdrv_debug_event(BlockDriverState *bs, BlkDebugEvent event);
 

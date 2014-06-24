@@ -35,6 +35,97 @@
 #include "qmp-commands.h"
 #include "qemu/timer.h"
 
+
+/* Acquires block permissions on BDS.
+ *
+ * Success: returns 0
+ *
+ * Failure: returns permissions unable to acquire */
+BdrvPerm block_job_perm_obtain(BlockDriverState *bs, BdrvPerm want)
+{
+    assert(bs);
+
+    want &= BDS_OP_ALL;
+
+    if (bs->job_perms & want) {
+        return bs->job_perms & want;
+    }
+
+    bs->job_perms |= want;
+
+    return 0;
+}
+
+void block_job_perm_release(BlockDriverState *bs, BdrvPerm release)
+{
+    assert(bs);
+
+    release &= BDS_OP_ALL;
+
+    bs->job_perms &= ~release;
+}
+
+
+BdrvPerm block_job_perm_obtain_between(BlockDriverState *base,
+                                       BlockDriverState *top,
+                                       BdrvPerm want, Error **errp)
+{
+    BlockDriverState *tmp = top;
+
+    assert(base);
+    assert(top);
+
+    want &= BDS_OP_ALL;
+
+    if (!bdrv_chain_contains(top, base)) {
+        error_setg(errp, "invalid block chain specified");
+        return BDS_OP_ALL;
+    }
+
+    if (top == base) {
+        return 0;
+    }
+
+    tmp = tmp->backing_hd;
+    while (tmp && tmp != base) {
+        if (tmp->job_perms & want) {
+            return tmp->job_perms & want;
+        }
+        tmp = tmp->backing_hd;
+    }
+
+    tmp = top->backing_hd;
+    while (tmp && tmp != base) {
+        tmp->job_perms |= want;
+        tmp = tmp->backing_hd;
+    }
+
+    return 0;
+}
+
+void block_job_release_between(BlockDriverState *base,
+                               BlockDriverState *top,
+                               BdrvPerm release, Error **errp)
+{
+    release &= BDS_OP_ALL;
+
+    assert(base);
+    assert(top);
+
+    if (!bdrv_chain_contains(top, base)) {
+        error_setg(errp, "invalid block chain specified");
+        return;
+    }
+
+    top = top->backing_hd;
+    while(top && top != base) {
+        top->job_perms &= ~release;
+        top = top->backing_hd;
+    }
+
+}
+
+
 void *block_job_create(const BlockJobDriver *driver, BlockDriverState *bs,
                        int64_t speed, BlockDriverCompletionFunc *cb,
                        void *opaque, Error **errp)
