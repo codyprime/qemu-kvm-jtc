@@ -1833,7 +1833,8 @@ static ImageInfoList *collect_image_info_list(const char *filename,
         g_hash_table_insert(filenames, (gpointer)filename, NULL);
 
         bs = bdrv_new_open("image", filename, fmt,
-                           BDRV_O_FLAGS | BDRV_O_NO_BACKING, false, false);
+                           BDRV_O_FLAGS | BDRV_O_NO_BACKING | BDRV_O_PROBE,
+                           false, false);
         if (!bs) {
             goto err;
         }

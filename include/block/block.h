@@ -110,6 +110,7 @@ typedef enum {
 #define BDRV_O_PROTOCOL    0x8000  /* if no block driver is explicitly given:
                                       select an appropriate protocol driver,
                                       ignoring the format layer */
+#define BDRV_O_PROBE      0x10000  /* allow image format probe */
 
 #define BDRV_O_CACHE_MASK  (BDRV_O_NOCACHE | BDRV_O_CACHE_WB | BDRV_O_NO_FLUSH)
 

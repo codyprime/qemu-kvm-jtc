@@ -1383,6 +1383,8 @@ int bdrv_open(BlockDriverState **pbs, const char *filename,
     const char *drvname;
     Error *local_err = NULL;
     int snapshot_flags = 0;
+    static bool probe_have_warned = false; /* only output warning once per
+                                              session */
 
     assert(pbs);
 
@@ -1471,6 +1473,16 @@ int bdrv_open(BlockDriverState **pbs, const char *filename,
 
     /* Image format probing */
     if (!drv && file) {
+        if (!(flags & BDRV_O_PROBE) && !probe_have_warned) {
+            fprintf(stderr, "Format autodetection is deprecated and may be "
+                    "removed in future versions.  Image format autodetection "
+                    "is not reliable; some image formats (e.g. raw) may "
+                    "masquerade as other image formats.  This could lead to "
+                    "system data loss or leaks.\n");
+            /* TODO: return error if image format not specified, and remove
+             *       warning */
+            probe_have_warned = true;
+        }
         ret = find_image_format(file, filename, &drv, &local_err);
         if (ret < 0) {
             goto fail;
