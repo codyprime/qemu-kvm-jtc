@@ -151,6 +151,7 @@ static void QEMU_NORETURN help(void)
            "  '-c' creates a snapshot\n"
            "  '-d' deletes a snapshot\n"
            "  '-l' lists all snapshots in the given image\n"
+           "  '-f' specifies the image file format\n"
            "\n"
            "Parameters to compare subcommand:\n"
            "  '-f' first image format\n"
@@ -2157,11 +2158,12 @@ static int img_snapshot(int argc, char **argv)
     qemu_timeval tv;
     bool quiet = false;
     Error *err = NULL;
+    const char *fmt = NULL;
 
     bdrv_oflags = BDRV_O_FLAGS | BDRV_O_RDWR;
     /* Parse commandline parameters */
     for(;;) {
-        c = getopt(argc, argv, "la:c:d:hq");
+        c = getopt(argc, argv, "la:c:d:f:hq");
         if (c == -1) {
             break;
         }
@@ -2202,6 +2204,9 @@ static int img_snapshot(int argc, char **argv)
             action = SNAPSHOT_DELETE;
             snapshot_name = optarg;
             break;
+        case 'f':
+            fmt = optarg;
+            break;
         case 'q':
             quiet = true;
             break;
@@ -2214,7 +2219,7 @@ static int img_snapshot(int argc, char **argv)
     filename = argv[optind++];
 
     /* Open the image */
-    bs = bdrv_new_open("image", filename, NULL, bdrv_oflags, true, quiet);
+    bs = bdrv_new_open("image", filename, fmt, bdrv_oflags, true, quiet);
     if (!bs) {
         return 1;
     }

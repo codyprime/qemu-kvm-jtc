@@ -52,9 +52,9 @@ STEXI
 ETEXI
 
 DEF("snapshot", img_snapshot,
-    "snapshot [-q] [-l | -a snapshot | -c snapshot | -d snapshot] filename")
+    "snapshot [-q] [-l | -a snapshot | -c snapshot | -d snapshot] [ -f fmt] filename")
 STEXI
-@item snapshot [-q] [-l | -a @var{snapshot} | -c @var{snapshot} | -d @var{snapshot}] @var{filename}
+@item snapshot [-q] [-l | -a @var{snapshot} | -c @var{snapshot} | -d @var{snapshot}] [ -f @var{fmt}] @var{filename}
 ETEXI
 
 DEF("rebase", img_rebase,
