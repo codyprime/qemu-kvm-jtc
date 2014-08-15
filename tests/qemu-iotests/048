@@ -37,7 +37,7 @@ trap "_cleanup; exit \$status" 0 1 2 3 15
 
 _compare()
 {
-    $QEMU_IMG compare "$@" "$TEST_IMG" "${TEST_IMG2}"
+    $QEMU_IMG compare "$@" -f "${IMGFMT}" -F "${IMGFMT}" "$TEST_IMG" "${TEST_IMG2}"
     echo $?
 }
 
@@ -64,7 +64,7 @@ _compare
 _compare -q
 
 # Compare images with different size
-$QEMU_IMG resize "$TEST_IMG" +512M
+$QEMU_IMG resize -f "${IMGFMT}" "$TEST_IMG" +512M
 _compare
 _compare -s
 
