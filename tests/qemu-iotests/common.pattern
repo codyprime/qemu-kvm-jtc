@@ -28,7 +28,7 @@ function do_is_allocated() {
 }
 
 function is_allocated() {
-    do_is_allocated "$@" | $QEMU_IO "$TEST_IMG" | _filter_qemu_io
+    do_is_allocated "$@" | $QEMU_IO -f "${IMGFMT}" "$TEST_IMG" | _filter_qemu_io
 }
 
 function do_io() {
@@ -46,18 +46,18 @@ function do_io() {
 }
 
 function io_pattern() {
-    do_io "$@" | $QEMU_IO "$TEST_IMG" | _filter_qemu_io
+    do_io "$@" | $QEMU_IO -f "${IMGFMT}" "$TEST_IMG" | _filter_qemu_io
 }
 
 function io() {
     local start=$2
     local pattern=$(( (start >> 9) % 256 ))
 
-    do_io "$@" $pattern | $QEMU_IO "$TEST_IMG" | _filter_qemu_io
+    do_io "$@" $pattern | $QEMU_IO -f "${IMGFMT}" "$TEST_IMG" | _filter_qemu_io
 }
 
 function io_zero() {
-    do_io "$@" 0 | $QEMU_IO "$TEST_IMG" | _filter_qemu_io
+    do_io "$@" 0 | $QEMU_IO -f "${IMGFMT}" "$TEST_IMG" | _filter_qemu_io
 }
 
 function io_test() {
