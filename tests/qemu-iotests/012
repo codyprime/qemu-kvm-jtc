@@ -54,7 +54,7 @@ chmod a-w "$TEST_IMG"
 
 echo
 echo "== read from read-only image"
-$QEMU_IO -r -c "read 0 512" "$TEST_IMG" | _filter_qemu_io
+$QEMU_IO -f "${IMGFMT}" -r -c "read 0 512" "$TEST_IMG" | _filter_qemu_io
 
 # success, all done
 echo "*** done"
