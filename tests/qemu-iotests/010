@@ -52,7 +52,7 @@ _make_test_img $size
 
 echo
 echo "creating pattern"
-$QEMU_IO \
+$QEMU_IO -f "${IMGFMT}" \
 	-c "write -P 165 2048k 4k" \
 	-c "write 64k 4k" \
 	-c "write 9M 4k" \
