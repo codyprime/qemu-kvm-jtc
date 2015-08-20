@@ -1045,6 +1045,11 @@ Example:
 EQMP
 
     {
+        .name       = "block-null",
+        .args_type  = "device:B,speed:o?",
+        .mhandler.cmd_new = qmp_marshal_input_block_null,
+    },
+    {
         .name       = "block-commit",
         .args_type  = "device:B,base:s?,top:s?,backing-file:s?,speed:o?",
         .mhandler.cmd_new = qmp_marshal_input_block_commit,

@@ -544,6 +544,8 @@ void bdrv_remove_aio_context_notifier(BlockDriverState *bs,
 int is_windows_drive(const char *filename);
 #endif
 
+void null_start(BlockDriverState *bs, int64_t speed, BlockCompletionFunc *cb,
+                void *opaque, Error **errp);
 /**
  * stream_start:
  * @bs: Block device to operate on.

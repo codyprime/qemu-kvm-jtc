@@ -559,7 +559,7 @@
 # Since: 1.7
 ##
 { 'enum': 'BlockJobType',
-  'data': ['commit', 'stream', 'mirror', 'backup'] }
+  'data': ['commit', 'stream', 'mirror', 'backup', 'null'] }
 
 ##
 # @BlockJobInfo:
@@ -884,6 +884,9 @@
 { 'command': 'block-commit',
   'data': { 'device': 'str', '*base': 'str', '*top': 'str',
             '*backing-file': 'str', '*speed': 'int' } }
+
+{ 'command': 'block-null',
+  'data': { 'device': 'str', '*speed': 'int' } }
 
 ##
 # @drive-backup

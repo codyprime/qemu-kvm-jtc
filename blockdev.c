@@ -2349,6 +2349,48 @@ out:
     aio_context_release(aio_context);
 }
 
+void qmp_block_null(const char *device,
+                      bool has_speed, int64_t speed,
+                      Error **errp)
+{
+    BlockBackend *blk;
+    BlockDriverState *bs;
+    AioContext *aio_context;
+    Error *local_err = NULL;
+
+    if (!has_speed) {
+        speed = 0;
+    }
+
+    /* important note:
+     *  libvirt relies on the devicenotfound error class in order to probe for
+     *  live commit feature versions; for this to work, we must make sure to
+     *  perform the device lookup before any generic errors that may occur in a
+     *  scenario in which all optional arguments are omitted. */
+    blk = blk_by_name(device);
+    if (!blk) {
+        error_set(errp, ERROR_CLASS_DEVICE_NOT_FOUND,
+                  "device '%s' not found", device);
+        return;
+    }
+    bs = blk_bs(blk);
+
+    aio_context = bdrv_get_aio_context(bs);
+    aio_context_acquire(aio_context);
+
+    if (local_err != NULL) {
+        error_propagate(errp, local_err);
+        goto out;
+    }
+
+    null_start(bs, speed, block_job_cb, bs, &local_err);
+
+out:
+    aio_context_release(aio_context);
+}
+
+
+
 void qmp_block_commit(const char *device,
                       bool has_base, const char *base,
                       bool has_top, const char *top,
