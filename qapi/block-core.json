@@ -1375,13 +1375,14 @@
 # Drivers that are supported in block device operations.
 #
 # @host_device, @host_cdrom: Since 2.1
+# @gluster: Since 2.5
 #
 # Since: 2.0
 ##
 { 'enum': 'BlockdevDriver',
   'data': [ 'archipelago', 'blkdebug', 'blkverify', 'bochs', 'cloop',
-            'dmg', 'file', 'ftp', 'ftps', 'host_cdrom', 'host_device',
-            'http', 'https', 'null-aio', 'null-co', 'parallels',
+            'dmg', 'file', 'ftp', 'ftps', 'gluster', 'host_cdrom',
+            'host_device', 'http', 'https', 'null-aio', 'null-co', 'parallels',
             'qcow', 'qcow2', 'qed', 'quorum', 'raw', 'tftp', 'vdi', 'vhdx',
             'vmdk', 'vpc', 'vvfat' ] }
 
@@ -1797,6 +1798,59 @@
             '*read-pattern': 'QuorumReadPattern' } }
 
 ##
+# @GlusterTransport
+#
+# An enumeration of Gluster transport type
+#
+# @tcp:   TCP   - Transmission Control Protocol
+#
+# @unix:  UNIX  - Unix domain socket
+#
+# @rdma:  RDMA  - Remote direct memory access
+#
+# Since: 2.5
+##
+{ 'enum': 'GlusterTransport', 'data': [ 'tcp', 'unix', 'rdma'] }
+
+##
+# @GlusterServer
+#
+# Details for connecting to a gluster server
+#
+# @host:       host address (hostname/ipv4/ipv6 addresses)
+#
+# @port:       #optional port number on which glusterd is listening
+#               (default 24007)
+#
+# @transport:  #optional transport type used to connect to gluster management
+#               daemon (default 'tcp')
+#
+# Since: 2.5
+##
+{ 'struct': 'GlusterServer',
+  'data': { 'host': 'str',
+            '*port': 'int',
+            '*transport': 'GlusterTransport' } }
+
+##
+# @BlockdevOptionsGluster
+#
+# Driver specific block device options for Gluster
+#
+# @volume:   name of gluster volume where VM image resides
+#
+# @path:     absolute path to image file in gluster volume
+#
+# @servers:  gluster server description
+#
+# Since: 2.5
+##
+{ 'struct': 'BlockdevOptionsGluster',
+  'data': { 'volume': 'str',
+            'path': 'str',
+            'server': 'GlusterServer' } }
+
+##
 # @BlockdevOptions
 #
 # Options for creating a block device.
@@ -1816,7 +1870,7 @@
       'file':       'BlockdevOptionsFile',
       'ftp':        'BlockdevOptionsFile',
       'ftps':       'BlockdevOptionsFile',
-# TODO gluster: Wait for structured options
+      'gluster':    'BlockdevOptionsGluster',
       'host_cdrom': 'BlockdevOptionsFile',
       'host_device':'BlockdevOptionsFile',
       'http':       'BlockdevOptionsFile',

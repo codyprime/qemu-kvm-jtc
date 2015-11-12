@@ -11,6 +11,10 @@
 #include "block/block_int.h"
 #include "qemu/uri.h"
 
+#define GLUSTER_OPT_FILENAME        "filename"
+#define GLUSTER_DEFAULT_PORT        24007
+
+
 typedef struct GlusterAIOCB {
     int64_t size;
     int ret;
@@ -28,15 +32,6 @@ typedef struct BDRVGlusterReopenState {
     struct glfs *glfs;
     struct glfs_fd *fd;
 } BDRVGlusterReopenState;
-
-typedef struct GlusterConf {
-    char *host;
-    int port;
-    char *volume;
-    char *path;
-    char *transport;
-} GlusterConf;
-
 
 static QemuOptsList qemu_gluster_create_opts = {
     .name = "qemu-gluster-create-opts",
@@ -61,7 +56,7 @@ static QemuOptsList runtime_opts = {
     .head = QTAILQ_HEAD_INITIALIZER(runtime_opts.head),
     .desc = {
         {
-            .name = "filename",
+            .name = GLUSTER_OPT_FILENAME,
             .type = QEMU_OPT_STRING,
             .help = "URL to the gluster image",
         },
@@ -70,18 +65,7 @@ static QemuOptsList runtime_opts = {
 };
 
 
-static void qemu_gluster_gconf_free(GlusterConf *gconf)
-{
-    if (gconf) {
-        g_free(gconf->host);
-        g_free(gconf->volume);
-        g_free(gconf->path);
-        g_free(gconf->transport);
-        g_free(gconf);
-    }
-}
-
-static int parse_volume_options(GlusterConf *gconf, char *path)
+static int parse_volume_options(BlockdevOptionsGluster *gconf, char *path)
 {
     char *p, *q;
 
@@ -143,8 +127,10 @@ static int parse_volume_options(GlusterConf *gconf, char *path)
  * file=gluster+unix:///testvol/dir/a.img?socket=/tmp/glusterd.socket
  * file=gluster+rdma://1.2.3.4:24007/testvol/a.img
  */
-static int qemu_gluster_parseuri(GlusterConf *gconf, const char *filename)
+static int qemu_gluster_parseuri(BlockdevOptionsGluster **pgconf,
+                                 const char *filename)
 {
+    BlockdevOptionsGluster *gconf;
     URI *uri;
     QueryParams *qp = NULL;
     bool is_unix = false;
@@ -155,20 +141,24 @@ static int qemu_gluster_parseuri(GlusterConf *gconf, const char *filename)
         return -EINVAL;
     }
 
+    gconf = g_new0(BlockdevOptionsGluster, 1);
+    gconf->server = g_new0(GlusterServer, 1);
+
     /* transport */
     if (!uri->scheme || !strcmp(uri->scheme, "gluster")) {
-        gconf->transport = g_strdup("tcp");
+        gconf->server->transport = GLUSTER_TRANSPORT_TCP;
     } else if (!strcmp(uri->scheme, "gluster+tcp")) {
-        gconf->transport = g_strdup("tcp");
+        gconf->server->transport = GLUSTER_TRANSPORT_TCP;
     } else if (!strcmp(uri->scheme, "gluster+unix")) {
-        gconf->transport = g_strdup("unix");
+        gconf->server->transport = GLUSTER_TRANSPORT_UNIX;
         is_unix = true;
     } else if (!strcmp(uri->scheme, "gluster+rdma")) {
-        gconf->transport = g_strdup("rdma");
+        gconf->server->transport = GLUSTER_TRANSPORT_RDMA;
     } else {
         ret = -EINVAL;
         goto out;
     }
+    gconf->server->has_transport = true;
 
     ret = parse_volume_options(gconf, uri->path);
     if (ret < 0) {
@@ -190,13 +180,23 @@ static int qemu_gluster_parseuri(GlusterConf *gconf, const char *filename)
             ret = -EINVAL;
             goto out;
         }
-        gconf->host = g_strdup(qp->p[0].value);
+        gconf->server->host = g_strdup(qp->p[0].value);
     } else {
-        gconf->host = g_strdup(uri->server ? uri->server : "localhost");
-        gconf->port = uri->port;
+        gconf->server->host = g_strdup(uri->server ? uri->server : "localhost");
+        if (uri->port) {
+            gconf->server->port = uri->port;
+        } else {
+            gconf->server->port = GLUSTER_DEFAULT_PORT;
+        }
+        gconf->server->has_port = true;
     }
 
+    *pgconf = gconf;
+
 out:
+    if (ret < 0) {
+        qapi_free_BlockdevOptionsGluster(gconf);
+    }
     if (qp) {
         query_params_free(qp);
     }
@@ -204,14 +204,15 @@ out:
     return ret;
 }
 
-static struct glfs *qemu_gluster_init(GlusterConf *gconf, const char *filename,
-                                      Error **errp)
+static struct glfs *qemu_gluster_init(BlockdevOptionsGluster **pgconf,
+                                      const char *filename, Error **errp)
 {
-    struct glfs *glfs = NULL;
+    struct glfs *glfs;
     int ret;
     int old_errno;
+    BlockdevOptionsGluster *gconf;
 
-    ret = qemu_gluster_parseuri(gconf, filename);
+    ret = qemu_gluster_parseuri(&gconf, filename);
     if (ret < 0) {
         error_setg(errp, "Usage: file=gluster[+transport]://[host[:port]]/"
                          "volume/path[?socket=...]");
@@ -224,8 +225,9 @@ static struct glfs *qemu_gluster_init(GlusterConf *gconf, const char *filename,
         goto out;
     }
 
-    ret = glfs_set_volfile_server(glfs, gconf->transport, gconf->host,
-            gconf->port);
+    ret = glfs_set_volfile_server(glfs,
+                                  GlusterTransport_lookup[gconf->server->transport],
+                                  gconf->server->host, gconf->server->port);
     if (ret < 0) {
         goto out;
     }
@@ -242,10 +244,10 @@ static struct glfs *qemu_gluster_init(GlusterConf *gconf, const char *filename,
     ret = glfs_init(glfs);
     if (ret) {
         error_setg_errno(errp, errno,
-                         "Gluster connection failed for host=%s port=%d "
-                         "volume=%s path=%s transport=%s", gconf->host,
-                         gconf->port, gconf->volume, gconf->path,
-                         gconf->transport);
+                         "Gluster connection failed for host=%s port=%ld "
+                         "volume=%s path=%s transport=%s", gconf->server->host,
+                         gconf->server->port, gconf->volume, gconf->path,
+                         GlusterTransport_lookup[gconf->server->transport]);
 
         /* glfs_init sometimes doesn't set errno although docs suggest that */
         if (errno == 0)
@@ -253,6 +255,7 @@ static struct glfs *qemu_gluster_init(GlusterConf *gconf, const char *filename,
 
         goto out;
     }
+    *pgconf = gconf;
     return glfs;
 
 out:
@@ -315,7 +318,7 @@ static int qemu_gluster_open(BlockDriverState *bs, QDict *options,
     BDRVGlusterState *s = bs->opaque;
     int open_flags = 0;
     int ret = 0;
-    GlusterConf *gconf = g_new0(GlusterConf, 1);
+    BlockdevOptionsGluster *gconf = NULL;
     QemuOpts *opts;
     Error *local_err = NULL;
     const char *filename;
@@ -329,8 +332,7 @@ static int qemu_gluster_open(BlockDriverState *bs, QDict *options,
     }
 
     filename = qemu_opt_get(opts, "filename");
-
-    s->glfs = qemu_gluster_init(gconf, filename, errp);
+    s->glfs = qemu_gluster_init(&gconf, filename, errp);
     if (!s->glfs) {
         ret = -errno;
         goto out;
@@ -345,7 +347,7 @@ static int qemu_gluster_open(BlockDriverState *bs, QDict *options,
 
 out:
     qemu_opts_del(opts);
-    qemu_gluster_gconf_free(gconf);
+    qapi_free_BlockdevOptionsGluster(gconf);
     if (!ret) {
         return ret;
     }
@@ -363,7 +365,7 @@ static int qemu_gluster_reopen_prepare(BDRVReopenState *state,
 {
     int ret = 0;
     BDRVGlusterReopenState *reop_s;
-    GlusterConf *gconf = NULL;
+    BlockdevOptionsGluster *gconf = NULL;
     int open_flags = 0;
 
     assert(state != NULL);
@@ -374,9 +376,7 @@ static int qemu_gluster_reopen_prepare(BDRVReopenState *state,
 
     qemu_gluster_parse_flags(state->flags, &open_flags);
 
-    gconf = g_new0(GlusterConf, 1);
-
-    reop_s->glfs = qemu_gluster_init(gconf, state->bs->filename, errp);
+    reop_s->glfs = qemu_gluster_init(&gconf, state->bs->filename, errp);
     if (reop_s->glfs == NULL) {
         ret = -errno;
         goto exit;
@@ -391,7 +391,7 @@ static int qemu_gluster_reopen_prepare(BDRVReopenState *state,
 
 exit:
     /* state->opaque will be freed in either the _abort or _commit */
-    qemu_gluster_gconf_free(gconf);
+    qapi_free_BlockdevOptionsGluster(gconf);
     return ret;
 }
 
@@ -500,15 +500,15 @@ static inline int qemu_gluster_zerofill(struct glfs_fd *fd, int64_t offset,
 static int qemu_gluster_create(const char *filename,
                                QemuOpts *opts, Error **errp)
 {
+    BlockdevOptionsGluster *gconf = NULL;
     struct glfs *glfs;
     struct glfs_fd *fd;
     int ret = 0;
     int prealloc = 0;
     int64_t total_size = 0;
     char *tmp = NULL;
-    GlusterConf *gconf = g_new0(GlusterConf, 1);
 
-    glfs = qemu_gluster_init(gconf, filename, errp);
+    glfs = qemu_gluster_init(&gconf, filename, errp);
     if (!glfs) {
         ret = -errno;
         goto out;
@@ -548,7 +548,7 @@ static int qemu_gluster_create(const char *filename,
     }
 out:
     g_free(tmp);
-    qemu_gluster_gconf_free(gconf);
+    qapi_free_BlockdevOptionsGluster(gconf);
     if (glfs) {
         glfs_fini(glfs);
     }
