@@ -25,19 +25,19 @@ typedef struct BDRVGlusterState {
 } BDRVGlusterState;
 
 typedef struct GlusterConf {
-    char *server;
+    char *host;
     int port;
-    char *volname;
-    char *image;
+    char *volume;
+    char *path;
     char *transport;
 } GlusterConf;
 
 static void qemu_gluster_gconf_free(GlusterConf *gconf)
 {
     if (gconf) {
-        g_free(gconf->server);
-        g_free(gconf->volname);
-        g_free(gconf->image);
+        g_free(gconf->host);
+        g_free(gconf->volume);
+        g_free(gconf->path);
         g_free(gconf->transport);
         g_free(gconf);
     }
@@ -57,19 +57,19 @@ static int parse_volume_options(GlusterConf *gconf, char *path)
     if (*p == '\0') {
         return -EINVAL;
     }
-    gconf->volname = g_strndup(q, p - q);
+    gconf->volume = g_strndup(q, p - q);
 
-    /* image */
+    /* path */
     p += strspn(p, "/");
     if (*p == '\0') {
         return -EINVAL;
     }
-    gconf->image = g_strdup(p);
+    gconf->path = g_strdup(p);
     return 0;
 }
 
 /*
- * file=gluster[+transport]://[server[:port]]/volname/image[?socket=...]
+ * file=gluster[+transport]://[host[:port]]/volume/path[?socket=...]
  *
  * 'gluster' is the protocol.
  *
@@ -78,10 +78,10 @@ static int parse_volume_options(GlusterConf *gconf, char *path)
  * tcp, unix and rdma. If a transport type isn't specified, then tcp
  * type is assumed.
  *
- * 'server' specifies the server where the volume file specification for
+ * 'host' specifies the host where the volume file specification for
  * the given volume resides. This can be either hostname, ipv4 address
  * or ipv6 address. ipv6 address needs to be within square brackets [ ].
- * If transport type is 'unix', then 'server' field should not be specified.
+ * If transport type is 'unix', then 'host' field should not be specified.
  * The 'socket' field needs to be populated with the path to unix domain
  * socket.
  *
@@ -90,9 +90,9 @@ static int parse_volume_options(GlusterConf *gconf, char *path)
  * default port. If the transport type is unix, then 'port' should not be
  * specified.
  *
- * 'volname' is the name of the gluster volume which contains the VM image.
+ * 'volume' is the name of the gluster volume which contains the VM image.
  *
- * 'image' is the path to the actual VM image that resides on gluster volume.
+ * 'path' is the path to the actual VM image that resides on gluster volume.
  *
  * Examples:
  *
@@ -101,7 +101,7 @@ static int parse_volume_options(GlusterConf *gconf, char *path)
  * file=gluster+tcp://1.2.3.4:24007/testvol/dir/a.img
  * file=gluster+tcp://[1:2:3:4:5:6:7:8]/testvol/dir/a.img
  * file=gluster+tcp://[1:2:3:4:5:6:7:8]:24007/testvol/dir/a.img
- * file=gluster+tcp://server.domain.com:24007/testvol/dir/a.img
+ * file=gluster+tcp://host.domain.com:24007/testvol/dir/a.img
  * file=gluster+unix:///testvol/dir/a.img?socket=/tmp/glusterd.socket
  * file=gluster+rdma://1.2.3.4:24007/testvol/a.img
  */
@@ -152,9 +152,9 @@ static int qemu_gluster_parseuri(GlusterConf *gconf, const char *filename)
             ret = -EINVAL;
             goto out;
         }
-        gconf->server = g_strdup(qp->p[0].value);
+        gconf->host = g_strdup(qp->p[0].value);
     } else {
-        gconf->server = g_strdup(uri->server ? uri->server : "localhost");
+        gconf->host = g_strdup(uri->server ? uri->server : "localhost");
         gconf->port = uri->port;
     }
 
@@ -175,18 +175,18 @@ static struct glfs *qemu_gluster_init(GlusterConf *gconf, const char *filename,
 
     ret = qemu_gluster_parseuri(gconf, filename);
     if (ret < 0) {
-        error_setg(errp, "Usage: file=gluster[+transport]://[server[:port]]/"
-                   "volname/image[?socket=...]");
+        error_setg(errp, "Usage: file=gluster[+transport]://[host[:port]]/"
+                   "volume/path[?socket=...]");
         errno = -ret;
         goto out;
     }
 
-    glfs = glfs_new(gconf->volname);
+    glfs = glfs_new(gconf->volume);
     if (!glfs) {
         goto out;
     }
 
-    ret = glfs_set_volfile_server(glfs, gconf->transport, gconf->server,
+    ret = glfs_set_volfile_server(glfs, gconf->transport, gconf->host,
             gconf->port);
     if (ret < 0) {
         goto out;
@@ -204,9 +204,9 @@ static struct glfs *qemu_gluster_init(GlusterConf *gconf, const char *filename,
     ret = glfs_init(glfs);
     if (ret) {
         error_setg_errno(errp, errno,
-                         "Gluster connection failed for server=%s port=%d "
-                         "volume=%s image=%s transport=%s", gconf->server,
-                         gconf->port, gconf->volname, gconf->image,
+                         "Gluster connection failed for host=%s port=%d "
+                         "volume=%s path=%s transport=%s", gconf->host,
+                         gconf->port, gconf->volume, gconf->path,
                          gconf->transport);
 
         /* glfs_init sometimes doesn't set errno although docs suggest that */
@@ -314,7 +314,7 @@ static int qemu_gluster_open(BlockDriverState *bs,  QDict *options,
 
     qemu_gluster_parse_flags(bdrv_flags, &open_flags);
 
-    s->fd = glfs_open(s->glfs, gconf->image, open_flags);
+    s->fd = glfs_open(s->glfs, gconf->path, open_flags);
     if (!s->fd) {
         ret = -errno;
     }
@@ -364,7 +364,7 @@ static int qemu_gluster_reopen_prepare(BDRVReopenState *state,
         goto exit;
     }
 
-    reop_s->fd = glfs_open(reop_s->glfs, gconf->image, open_flags);
+    reop_s->fd = glfs_open(reop_s->glfs, gconf->path, open_flags);
     if (reop_s->fd == NULL) {
         /* reops->glfs will be cleaned up in _abort */
         ret = -errno;
@@ -511,7 +511,7 @@ static int qemu_gluster_create(const char *filename,
         goto out;
     }
 
-    fd = glfs_creat(glfs, gconf->image,
+    fd = glfs_creat(glfs, gconf->path,
         O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, S_IRUSR | S_IWUSR);
     if (!fd) {
         ret = -errno;
