@@ -1841,14 +1841,14 @@
 #
 # @path:     absolute path to image file in gluster volume
 #
-# @servers:  gluster server description
+# @servers:  one or more gluster server descriptions
 #
 # Since: 2.5
 ##
 { 'struct': 'BlockdevOptionsGluster',
   'data': { 'volume': 'str',
             'path': 'str',
-            'server': 'GlusterServer' } }
+            'server': [ 'GlusterServer' ] } }
 
 ##
 # @BlockdevOptions
