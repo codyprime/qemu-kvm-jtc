@@ -24,6 +24,7 @@ typedef struct GlusterAIOCB {
 typedef struct BDRVGlusterState {
     struct glfs *glfs;
     struct glfs_fd *fd;
+    int debug_level;
 } BDRVGlusterState;
 
 typedef struct GlusterConf {
@@ -32,6 +33,7 @@ typedef struct GlusterConf {
     char *volname;
     char *image;
     char *transport;
+    int debug_level;
 } GlusterConf;
 
 static void qemu_gluster_gconf_free(GlusterConf *gconf)
@@ -194,11 +196,7 @@ static struct glfs *qemu_gluster_init(GlusterConf *gconf, const char *filename,
         goto out;
     }
 
-    /*
-     * TODO: Use GF_LOG_ERROR instead of hard code value of 4 here when
-     * GlusterFS makes GF_LOG_* macros available to libgfapi users.
-     */
-    ret = glfs_set_logging(glfs, "-", 4);
+    ret = glfs_set_logging(glfs, "-", gconf->debug_level);
     if (ret < 0) {
         goto out;
     }
@@ -256,15 +254,25 @@ static void gluster_finish_aiocb(struct glfs_fd *fd, ssize_t ret, void *arg)
     qemu_bh_schedule(acb->bh);
 }
 
+#define GLUSTER_OPT_FILENAME "filename"
+#define GLUSTER_OPT_DEBUG "debug"
+#define GLUSTER_DEBUG_DEFAULT 4
+#define GLUSTER_DEBUG_MAX 9
+
 /* TODO Convert to fine grained options */
 static QemuOptsList runtime_opts = {
     .name = "gluster",
     .head = QTAILQ_HEAD_INITIALIZER(runtime_opts.head),
     .desc = {
         {
-            .name = "filename",
+            .name = GLUSTER_OPT_FILENAME,
             .type = QEMU_OPT_STRING,
             .help = "URL to the gluster image",
+        },
+        {
+            .name = GLUSTER_OPT_DEBUG,
+            .type = QEMU_OPT_NUMBER,
+            .help = "Gluster log level, valid range is 0-9",
         },
         { /* end of list */ }
     },
@@ -306,8 +314,17 @@ static int qemu_gluster_open(BlockDriverState *bs,  QDict *options,
         goto out;
     }
 
-    filename = qemu_opt_get(opts, "filename");
+    filename = qemu_opt_get(opts, GLUSTER_OPT_FILENAME);
 
+    s->debug_level = qemu_opt_get_number(opts, GLUSTER_OPT_DEBUG,
+                                         GLUSTER_DEBUG_DEFAULT);
+    if (s->debug_level < 0) {
+        s->debug_level = 0;
+    } else if (s->debug_level > GLUSTER_DEBUG_MAX) {
+        s->debug_level = GLUSTER_DEBUG_MAX;
+    }
+
+    gconf->debug_level = s->debug_level;
     s->glfs = qemu_gluster_init(gconf, filename, errp);
     if (!s->glfs) {
         ret = -errno;
@@ -363,12 +380,15 @@ static int qemu_gluster_reopen_prepare(BDRVReopenState *state,
                                        BlockReopenQueue *queue, Error **errp)
 {
     int ret = 0;
+    BDRVGlusterState *s;
     BDRVGlusterReopenState *reop_s;
     GlusterConf *gconf = NULL;
     int open_flags = 0;
 
     assert(state != NULL);
     assert(state->bs != NULL);
+
+    s = state->bs->opaque;
 
     state->opaque = g_new0(BDRVGlusterReopenState, 1);
     reop_s = state->opaque;
@@ -377,6 +397,7 @@ static int qemu_gluster_reopen_prepare(BDRVReopenState *state,
 
     gconf = g_new0(GlusterConf, 1);
 
+    gconf->debug_level = s->debug_level;
     reop_s->glfs = qemu_gluster_init(gconf, state->bs->filename, errp);
     if (reop_s->glfs == NULL) {
         ret = -errno;
@@ -511,6 +532,14 @@ static int qemu_gluster_create(const char *filename,
     int64_t total_size = 0;
     char *tmp = NULL;
     GlusterConf *gconf = g_new0(GlusterConf, 1);
+
+    gconf->debug_level = qemu_opt_get_number_del(opts, GLUSTER_OPT_DEBUG,
+                                                 GLUSTER_DEBUG_DEFAULT);
+    if (gconf->debug_level < 0) {
+        gconf->debug_level = 0;
+    } else if (gconf->debug_level > GLUSTER_DEBUG_MAX) {
+        gconf->debug_level = GLUSTER_DEBUG_MAX;
+    }
 
     glfs = qemu_gluster_init(gconf, filename, errp);
     if (!glfs) {
@@ -742,6 +771,11 @@ static QemuOptsList qemu_gluster_create_opts = {
             .name = BLOCK_OPT_PREALLOC,
             .type = QEMU_OPT_STRING,
             .help = "Preallocation mode (allowed values: off, full)"
+        },
+        {
+            .name = GLUSTER_OPT_DEBUG,
+            .type = QEMU_OPT_NUMBER,
+            .help = "Gluster log level, valid range is 0-9",
         },
         { /* end of list */ }
     }
