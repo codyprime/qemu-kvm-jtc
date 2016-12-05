@@ -17,6 +17,14 @@ typedef struct BlockDriver BlockDriver;
 typedef struct BdrvChild BdrvChild;
 typedef struct BdrvChildRole BdrvChildRole;
 
+typedef enum {
+    BDRV_NAC_WRITE_INVISIBLE = 0x01,
+    BDRV_NAC_WRITE_METADATA  = 0x02,
+    BDRV_NAC_WRITE_DATA      = 0x04,
+    BDRV_NAC_RESIZE          = 0x08,
+    BDRV_NAC_GRAPH_MODIFY    = 0x10,
+} BdrvNacFlags;
+
 typedef struct BlockDriverInfo {
     /* in bytes, 0 if irrelevant */
     int cluster_size;
@@ -65,9 +73,12 @@ typedef enum {
     BDRV_REQ_NO_SERIALISING     = 0x8,
     BDRV_REQ_FUA                = 0x10,
     BDRV_REQ_WRITE_COMPRESSED   = 0x20,
+    /* An invisible write would not change the data as seen from this
+     * layer */
+    BDRV_REQ_WRITE_INVISIBLE    = 0x40,
 
     /* Mask of valid flags */
-    BDRV_REQ_MASK               = 0x3f,
+    BDRV_REQ_MASK               = 0x7f,
 } BdrvRequestFlags;
 
 typedef struct BlockSizes {
@@ -185,6 +196,10 @@ typedef enum BlockOpType {
     BLOCK_OP_TYPE_REPLACE,
     BLOCK_OP_TYPE_MAX,
 } BlockOpType;
+
+/* Node Access Control */
+
+int bdrv_nac_try_request(BdrvChild *);
 
 /* disk I/O throttling */
 void bdrv_init(void);

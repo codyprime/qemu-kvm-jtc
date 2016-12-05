@@ -615,6 +615,8 @@ static int bdrv_prwv_co(BdrvChild *child, int64_t offset,
         .flags = flags,
     };
 
+    /* Validate NAC here for r/w */
+
     if (qemu_in_coroutine()) {
         /* Fast-path if already in coroutine context */
         bdrv_rw_co_entry(&rwco);

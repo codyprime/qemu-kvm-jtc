@@ -387,6 +387,11 @@ typedef struct BdrvAioNotifier {
     QLIST_ENTRY(BdrvAioNotifier) list;
 } BdrvAioNotifier;
 
+struct BdrvNac {
+    uint64_t allow;
+    uint64_t need;
+}
+
 struct BdrvChildRole {
     void (*inherit_options)(int *child_flags, QDict *child_options,
                             int parent_flags, QDict *parent_options);
@@ -395,7 +400,7 @@ struct BdrvChildRole {
     void (*resize)(BdrvChild *child);
 
     /* Returns a name that is supposedly more useful for human users than the
-     * node name for identifying the node in question (in particular, a BB
+     * node namefor identifying the node in question (in particular, a BB
      * name), or NULL if the parent can't provide a better name. */
     const char* (*get_name)(BdrvChild *child);
 
@@ -419,6 +424,7 @@ struct BdrvChild {
     char *name;
     const BdrvChildRole *role;
     void *opaque;
+    BdrvNac nac;
     QLIST_ENTRY(BdrvChild) next;
     QLIST_ENTRY(BdrvChild) next_parent;
 };
