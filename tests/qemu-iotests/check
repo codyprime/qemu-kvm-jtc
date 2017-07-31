@@ -381,7 +381,10 @@ do
             fi
         fi
 
-        rm -rf "$TEST_DIR_SEQ"
+        if [ "$save_on_err" != "true" ] || [ "$err" != "true" ]
+        then
+            rm -rf "$TEST_DIR_SEQ"
+        fi
 
     fi
 
