@@ -765,14 +765,20 @@ _do_test()
         run_command="./$seq"
     fi
     export OUTPUT_DIR=$PWD
+
+    if [ ! -e "$TEST_DIR_SEQ" ]
+    then
+        mkdir "$TEST_DIR_SEQ"
+    fi
+
     if $debug; then
         # Do this in a sub-shell, so we are operating on the right
         # TEST_DIR / QEMU_TEST_DIR
         (
         export TEST_DIR=$TEST_DIR_SEQ
+        export QEMU_TEST_DIR=$TEST_DIR_SEQ
         cd "$source_iotests";
         . ./common.config
-        . ./common.rc
             MALLOC_PERTURB_=${MALLOC_PERTURB_:-$(($RANDOM % 255 + 1))} \
             $run_command -d 2>&1 | tee $tmp.out
         )
@@ -781,9 +787,9 @@ _do_test()
         # TEST_DIR / QEMU_TEST_DIR
         (
         export TEST_DIR=$TEST_DIR_SEQ
+        export QEMU_TEST_DIR=$TEST_DIR_SEQ
         cd "$source_iotests";
         . ./common.config
-        . ./common.rc
             MALLOC_PERTURB_=${MALLOC_PERTURB_:-$(($RANDOM % 255 + 1))} \
             $run_command >$tmp.out 2>&1
         )
@@ -813,6 +819,7 @@ _do_test()
     # TEST_DIR / QEMU_TEST_DIR
     (
     export TEST_DIR=$TEST_DIR_SEQ
+    export QEMU_TEST_DIR=$TEST_DIR_SEQ
     cd "$source_iotests";
     . ./common.config
     . ./common.rc
